@@ -16,7 +16,8 @@ except FileNotFoundError:
 df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 df = df.dropna(subset=["Date"]).reset_index(drop=True)
 
-st.title("💸 Мобільний трекер витрат")
+st.set_page_config(page_title="Expense Tracker", layout="wide")
+st.title("💸 Мій покращений трекер витрат")
 
 # --- Add Expense ---
 st.header("Додати витрату")
@@ -26,7 +27,8 @@ with st.form("add_expense"):
         amount = st.number_input("Сума (€)", min_value=0.01, step=0.5)
         category = st.selectbox("Категорія", [
             "Food", "Transport", "Rent", "Entertainment", "Health",
-            "Shopping", "Education", "Travel", "Bills", "Other"
+            "Shopping", "Education", "Travel", "Bills", "Phone",
+            "Sports", "Gifts", "Other"
         ])
     with col2:
         date = st.date_input("Дата", value=datetime.today())
@@ -59,9 +61,13 @@ if not df.empty:
 else:
     st.info("Немає витрат для видалення")
 
-# --- Monthly Report ---
-st.header("Звіт за місяць")
-month_input = st.text_input("Місяць (yyyy-mm або залишити пустим для всіх витрат)")
+# --- Filters and Reports ---
+st.header("Звіт")
+col1, col2 = st.columns(2)
+with col1:
+    month_input = st.text_input("Місяць (yyyy-mm, залишити пустим для всіх витрат)")
+with col2:
+    show_all = st.checkbox("Показати всі витрати", value=True if month_input=="" else False)
 
 if month_input:
     df["Month"] = df["Date"].dt.strftime("%Y-%m")
@@ -71,6 +77,7 @@ else:
 
 if not report_df.empty:
     st.subheader(f"Загальні витрати: {report_df['Amount'].sum():.2f} €")
+
     st.subheader("Витрати по категоріях")
     cat_report = report_df.groupby("Category")["Amount"].sum().reset_index()
     st.table(cat_report)
@@ -84,7 +91,7 @@ if not report_df.empty:
 
     # --- Bar chart ---
     st.subheader("Бар-діаграма")
-    fig2, ax2 = plt.subplots()
+    fig2, ax2 = plt.subplots(figsize=(6,4))
     ax2.barh(cat_report["Category"], cat_report["Amount"], color='skyblue')
     ax2.set_xlabel("Сума (€)")
     st.pyplot(fig2)
@@ -93,5 +100,11 @@ if not report_df.empty:
     max_expense = report_df.loc[report_df['Amount'].idxmax()]
     st.subheader("Найбільша витрата")
     st.write(f"{max_expense['Category']} - {max_expense['Amount']}€ на {max_expense['Date'].strftime('%Y-%m-%d')} ({max_expense['Note']})")
+
+    # --- Recent expenses ---
+    st.subheader("Останні витрати")
+    recent = report_df.sort_values("Date", ascending=False).head(10)
+    recent["Date"] = recent["Date"].dt.strftime("%Y-%m-%d")
+    st.table(recent[["Date","Category","Amount","Note"]])
 else:
     st.info("Немає витрат для цього періоду")
