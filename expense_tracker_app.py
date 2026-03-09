@@ -1,138 +1,402 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import matplotlib.pyplot as plt
+from datetime import datetime
+import calendar
+import requests
+
+# ---------- CONFIG ----------
+st.set_page_config(
+    page_title="Finance Tracker",
+    page_icon="💰",
+    layout="wide"
+)
 
 FILE = "expenses.csv"
 
-# --- Load or create CSV ---
+# ---------- UI STYLE ----------
+st.markdown("""
+<style>
+
+body {
+background-color:#0e1117;
+}
+
+.metric-card{
+background:#1e1e1e;
+padding:20px;
+border-radius:15px;
+box-shadow:0px 4px 10px rgba(0,0,0,0.3);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- LOGIN ----------
+PASSWORD = "1234"
+
+if "auth" not in st.session_state:
+    st.session_state.auth = False
+
+if not st.session_state.auth:
+
+    st.title("🔐 Login")
+
+    password = st.text_input("PIN", type="password")
+
+    if st.button("Login"):
+        if password == PASSWORD:
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("Wrong PIN")
+
+    st.stop()
+
+# ---------- LOAD DATA ----------
 try:
     df = pd.read_csv(FILE)
-except FileNotFoundError:
+except:
     df = pd.DataFrame(columns=["Date","Amount","Category","Note"])
-    df.to_csv(FILE,index=False)
 
-# --- Convert Date ---
 df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-df = df.dropna(subset=["Date"]).reset_index(drop=True)
 
-st.set_page_config(page_title="Expense Tracker Ultimate", layout="wide")
-st.title("💸 Expense Tracker Ultimate")
+df = df.dropna(subset=["Date"])
 
-# --- Budget setup ---
-st.sidebar.header("Налаштування бюджету")
-monthly_budget = st.sidebar.number_input("Бюджет на місяць (€)", min_value=0.0, step=10.0)
+# ---------- LOAD SUBSCRIPTIONS ----------
+try:
+    subs = pd.read_csv("subscriptions.csv")
+except:
+    subs = pd.DataFrame(columns=["Name","Amount","Category"])
 
-# --- Add Expense ---
-st.header("Додати витрату")
-with st.form("add_expense"):
-    col1, col2 = st.columns(2)
-    with col1:
-        amount = st.number_input("Сума (€)", min_value=0.01, step=0.5)
-        category = st.selectbox("Категорія", [
-            "Food", "Transport", "Rent", "Entertainment", "Health",
-            "Shopping", "Education", "Travel", "Bills", "Phone",
-            "Sports", "Gifts", "Other"
-        ])
-    with col2:
-        date = st.date_input("Дата", value=datetime.today())
-        note = st.text_input("Примітка")
-    
-    submitted = st.form_submit_button("Додати")
-    if submitted:
-        new_row = pd.DataFrame({
-            "Date":[pd.to_datetime(date)],
-            "Amount":[amount],
-            "Category":[category],
-            "Note":[note]
-        })
-        df = pd.concat([df,new_row], ignore_index=True)
-        df.to_csv(FILE,index=False)
-        st.success("✅ Витрату додано!")
+# ---------- SAVINGS ----------
+try:
+    savings = pd.read_csv("savings.csv")
+except:
+    savings = pd.DataFrame(columns=["Name","Target","Saved"])
 
-# --- Delete Expense ---
-st.header("Видалити витрату")
-if not df.empty:
-    df_display = df.copy()
-    df_display["Date"] = df_display["Date"].dt.strftime("%Y-%m-%d")
-    df_display["Info"] = df_display["Category"] + " - " + df_display["Amount"].astype(str) + "€ - " + df_display["Note"].fillna("")
-    delete_choice = st.selectbox("Оберіть витрату для видалення", df_display["Info"])
-    if st.button("Видалити"):
-        idx = df_display[df_display["Info"]==delete_choice].index[0]
-        df = df.drop(df.index[idx]).reset_index(drop=True)
-        df.to_csv(FILE,index=False)
-        st.success(f"✅ Витрату видалено!")
-else:
-    st.info("Немає витрат для видалення")
+# ---------- CURRENCY ----------
+def get_rate(currency):
 
-# --- Filters and Reports ---
-st.header("Звіт")
-col1, col2 = st.columns(2)
-with col1:
-    month_input = st.text_input("Місяць (yyyy-mm, залишити пустим для всіх витрат)")
-with col2:
-    sort_option = st.selectbox("Сортувати за", ["Date", "Amount", "Category"])
+    if currency == "EUR":
+        return 1
 
-# Filter by month
-if month_input:
-    df["Month"] = df["Date"].dt.strftime("%Y-%m")
-    report_df = df[df["Month"]==month_input]
-else:
-    report_df = df.copy()
+    url = f"https://api.exchangerate.host/latest?base={currency}&symbols=EUR"
 
-if not report_df.empty:
-    if sort_option == "Date":
-        report_df = report_df.sort_values("Date", ascending=False)
-    elif sort_option == "Amount":
-        report_df = report_df.sort_values("Amount", ascending=False)
-    else:
-        report_df = report_df.sort_values("Category", ascending=True)
+    try:
+        r = requests.get(url).json()
+        return r["rates"]["EUR"]
+    except:
+        return 1
 
-    total = report_df['Amount'].sum()
-    st.subheader(f"Загальні витрати: {total:.2f} €")
 
-    # Budget alert
-    if monthly_budget > 0 and month_input:
-        if total > monthly_budget:
-            st.warning(f"⚠️ Перевищено бюджет на {total-monthly_budget:.2f} €!")
-        else:
-            st.success(f"Бюджет у межах: залишок {monthly_budget-total:.2f} €")
+# ---------- SIDEBAR ----------
+page = st.sidebar.radio(
+"Navigation",
+[
+"Dashboard",
+"Add Expense",
+"Manage Expenses",
+"Subscriptions",
+"Savings",
+"Analytics",
+"Export"
+]
+)
 
-    st.subheader("Витрати по категоріях")
-    cat_report = report_df.groupby("Category")["Amount"].sum().reset_index()
-    st.table(cat_report)
 
-    # Pie chart
-    st.subheader("Кругова діаграма")
-    colors = plt.cm.tab20.colors
-    fig1, ax1 = plt.subplots()
-    ax1.pie(cat_report["Amount"], labels=cat_report["Category"], autopct="%1.1f%%", startangle=90, colors=colors[:len(cat_report)])
-    ax1.axis("equal")
-    st.pyplot(fig1)
+currency = st.sidebar.selectbox(
+"Currency",
+["EUR","USD","UAH"]
+)
 
-    # Bar chart
-    st.subheader("Бар-діаграма")
-    fig2, ax2 = plt.subplots(figsize=(6,4))
-    ax2.barh(cat_report["Category"], cat_report["Amount"], color='skyblue')
-    ax2.set_xlabel("Сума (€)")
-    st.pyplot(fig2)
+rate = get_rate(currency)
 
-    # Line chart (trend by month)
-    st.subheader("Тренд витрат по місяцях")
+# ---------- DASHBOARD ----------
+if page == "Dashboard":
+
+    st.title("📊 Financial Dashboard")
+
+    col1,col2,col3,col4 = st.columns(4)
+
+    total = df["Amount"].sum()
+
+    this_month = df[df["Date"].dt.month == datetime.today().month]
+
+    monthly = this_month["Amount"].sum()
+
+    avg = df["Amount"].mean() if len(df)>0 else 0
+
+    transactions = len(df)
+
+    col1.metric("Total Spent", f"{total:.2f} €")
+    col2.metric("This Month", f"{monthly:.2f} €")
+    col3.metric("Average Expense", f"{avg:.2f} €")
+    col4.metric("Transactions", transactions)
+
+    st.subheader("Expenses by Category")
+
+    cat = df.groupby("Category")["Amount"].sum()
+
+    st.bar_chart(cat)
+
+    st.subheader("Monthly Trend")
+
     trend = df.copy()
+
     trend["Month"] = trend["Date"].dt.to_period("M")
-    trend_summary = trend.groupby("Month")["Amount"].sum()
-    st.line_chart(trend_summary)
 
-    # Max expense
-    max_expense = report_df.loc[report_df['Amount'].idxmax()]
-    st.subheader("Найбільша витрата")
-    st.write(f"{max_expense['Category']} - {max_expense['Amount']}€ на {max_expense['Date'].strftime('%Y-%m-%d')} ({max_expense['Note']})")
+    trend = trend.groupby("Month")["Amount"].sum()
 
-    # Recent 10 expenses
-    st.subheader("Останні 10 витрат")
-    recent = report_df.sort_values("Date", ascending=False).head(10)
-    recent["Date"] = recent["Date"].dt.strftime("%Y-%m-%d")
-    st.table(recent[["Date","Category","Amount","Note"]])
-else:
-    st.info("Немає витрат для цього періоду")
+    st.line_chart(trend)
+
+    # ---------- FORECAST ----------
+    today = datetime.today()
+
+    current_month = df[df["Date"].dt.month == today.month]
+
+    E_current = current_month["Amount"].sum()
+
+    D_passed = today.day
+
+    D_total = calendar.monthrange(today.year,today.month)[1]
+
+    forecast = (E_current/D_passed)*D_total if D_passed>0 else 0
+
+    st.metric("Forecast end of month", f"{forecast:.2f} €")
+
+
+# ---------- ADD EXPENSE ----------
+if page == "Add Expense":
+
+    st.title("➕ Add Expense")
+
+    col1,col2 = st.columns(2)
+
+    with col1:
+
+        amount = st.number_input("Amount", min_value=0.01)
+
+        category = st.selectbox(
+        "Category",
+        [
+        "Food","Transport","Rent","Entertainment",
+        "Shopping","Health","Sports","Bills","Cafe","Other"
+        ])
+
+    with col2:
+
+        note = st.text_input("Note")
+
+        date = st.date_input("Date")
+
+    if st.button("Add Expense"):
+
+        amount_eur = amount * rate
+
+        new = pd.DataFrame({
+        "Date":[pd.to_datetime(date)],
+        "Amount":[amount_eur],
+        "Category":[category],
+        "Note":[note]
+        })
+
+        df = pd.concat([df,new])
+
+        df.to_csv(FILE,index=False)
+
+        st.success("Expense Added")
+
+# ---------- SUBSCRIPTIONS ----------
+if page == "Subscriptions":
+
+    st.title("🔁 Subscriptions")
+
+    st.dataframe(subs)
+
+    name = st.text_input("Name")
+
+    amount = st.number_input("Amount")
+
+    category = st.text_input("Category")
+
+    if st.button("Add Subscription"):
+
+        new = pd.DataFrame({
+        "Name":[name],
+        "Amount":[amount],
+        "Category":[category]
+        })
+
+        subs = pd.concat([subs,new])
+
+        subs.to_csv("subscriptions.csv",index=False)
+
+        st.success("Subscription Added")
+
+# ---------- SAVINGS ----------
+if page == "Savings":
+
+    st.title("🎯 Savings Goals")
+
+    for i,row in savings.iterrows():
+
+        progress = row["Saved"]/row["Target"]
+
+        st.subheader(row["Name"])
+
+        st.progress(progress)
+
+        st.write(f"{row['Saved']} / {row['Target']} €")
+
+    name = st.text_input("Goal")
+
+    target = st.number_input("Target Amount")
+
+    saved = st.number_input("Already Saved")
+
+    if st.button("Add Goal"):
+
+        new = pd.DataFrame({
+        "Name":[name],
+        "Target":[target],
+        "Saved":[saved]
+        })
+
+        savings = pd.concat([savings,new])
+
+        savings.to_csv("savings.csv",index=False)
+
+        st.success("Goal Added")
+
+# ---------- ANALYTICS ----------
+if page == "Analytics":
+
+    st.title("📈 Analytics")
+
+    df["Month"] = df["Date"].dt.to_period("M")
+
+    this_month = df[df["Month"] == df["Month"].max()]
+
+    last_month = df[df["Month"] == (df["Month"].max()-1)]
+
+    this_cat = this_month.groupby("Category")["Amount"].sum()
+
+    last_cat = last_month.groupby("Category")["Amount"].sum()
+
+    compare = pd.concat([this_cat,last_cat],axis=1)
+
+    compare.columns=["This Month","Last Month"]
+
+    compare["Change %"] = (
+    (compare["This Month"] - compare["Last Month"])
+    / compare["Last Month"]
+    )*100
+
+    st.subheader("Month Comparison")
+
+    st.dataframe(compare)
+
+    st.subheader("Fastest Growing Categories")
+
+    growth = compare.sort_values("Change %", ascending=False)
+
+    st.dataframe(growth.head(5))
+
+# ---------- EXPORT ----------
+if page == "Export":
+
+    st.title("Export Data")
+
+    st.download_button(
+    "Download CSV",
+    df.to_csv(index=False),
+    "expenses.csv"
+    )
+
+    df.to_excel("expenses.xlsx")
+
+    st.download_button(
+    "Download Excel",
+    open("expenses.xlsx","rb"),
+    "expenses.xlsx"
+    )
+# ---------- MANAGE EXPENSES ----------
+if page == "Manage Expenses":
+
+    st.title("✏️ Manage Expenses")
+
+    if df.empty:
+        st.info("No expenses yet")
+    else:
+
+        df_display = df.copy()
+
+        df_display["Label"] = (
+            df_display["Date"].dt.strftime("%Y-%m-%d")
+            + " | "
+            + df_display["Category"]
+            + " | "
+            + df_display["Amount"].round(2).astype(str)
+            + " €"
+            + " | "
+            + df_display["Note"].fillna("")
+        )
+
+        choice = st.selectbox(
+            "Select expense",
+            df_display["Label"]
+        )
+
+        idx = df_display[df_display["Label"] == choice].index[0]
+
+        expense = df.loc[idx]
+
+        st.subheader("Edit Expense")
+
+        col1,col2 = st.columns(2)
+
+        with col1:
+
+            new_amount = st.number_input(
+                "Amount",
+                value=float(expense["Amount"])
+            )
+
+            new_category = st.text_input(
+                "Category",
+                value=expense["Category"]
+            )
+
+        with col2:
+
+            new_note = st.text_input(
+                "Note",
+                value=str(expense["Note"])
+            )
+
+            new_date = st.date_input(
+                "Date",
+                value=expense["Date"]
+            )
+
+        col1,col2 = st.columns(2)
+
+        if col1.button("💾 Save Changes"):
+
+            df.loc[idx,"Amount"] = new_amount
+            df.loc[idx,"Category"] = new_category
+            df.loc[idx,"Note"] = new_note
+            df.loc[idx,"Date"] = pd.to_datetime(new_date)
+
+            df.to_csv(FILE,index=False)
+
+            st.success("Expense updated")
+
+        if col2.button("🗑 Delete Expense"):
+
+            df = df.drop(idx)
+
+            df.to_csv(FILE,index=False)
+
+            st.success("Expense deleted")
