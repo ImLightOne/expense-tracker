@@ -1,743 +1,793 @@
-import streamlit as st
+
+import io
+import sqlite3
+from datetime import date
+from calendar import monthrange
+from contextlib import contextmanager
+
+import bcrypt
 import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime
-import calendar
 import requests
+import streamlit as st
 
-# ---------- CONFIG ----------
-st.set_page_config(
-    page_title="Finance Tracker",
-    page_icon="💰",
-    layout="wide"
-)
+DB_PATH = "expense_tracker_multi.db"
+DEFAULT_CATEGORIES = [
+    "Food", "Transport", "Rent", "Entertainment", "Shopping", "Health",
+    "Sports", "Bills", "Cafe", "Education", "Travel", "Other"
+]
+SUPPORTED_CURRENCIES = ["EUR", "USD", "UAH"]
 
-FILE = "expenses.csv"
+st.set_page_config(page_title="Expense Tracker Pro", page_icon="💸", layout="wide")
 
-# ---------- UI STYLE ----------
-st.markdown("""
-<style>
 
-body {
-background-color:#0e1117;
-}
+# =========================
+# DB LAYER
+# =========================
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
 
-.metric-card{
-background:#1e1e1e;
-padding:20px;
-border-radius:15px;
-box-shadow:0px 4px 10px rgba(0,0,0,0.3);
-}
-.savings-card {
-    padding:20px;
-    border-radius:15px;
-    margin-bottom:15px;
-    color:white;
-    font-weight:500;
-}
 
-.s-red {
-    background:#5c1a1a;
-}
+@contextmanager
+def db():
+    conn = get_conn()
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
-.s-orange {
-    background:#5c3d1a;
-}
 
-.s-green {
-    background:#1f4d2e;
-}
+def rerun():
+    try:
+        st.rerun()
+    except Exception:
+        st.experimental_rerun()
 
-.s-blue {
-    background:#1a3b5c;
-}
 
-</style>
-""", unsafe_allow_html=True)
+def table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
 
-# ---------- LOGIN ----------
-PASSWORD = "1234"
 
-if "auth" not in st.session_state:
-    st.session_state.auth = False
+def safe_add_column(conn: sqlite3.Connection, table: str, column: str, definition: str, backfill_current_timestamp: bool = False):
+    if not table_has_column(conn, table, column):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        if backfill_current_timestamp:
+            conn.execute(f"UPDATE {table} SET {column} = CURRENT_TIMESTAMP WHERE {column} IS NULL")
 
-if not st.session_state.auth:
 
-    st.title("🔐 Login")
+def init_db():
+    with db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash BLOB NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-    password = st.text_input("PIN", type="password")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS expenses(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                amount REAL NOT NULL,
+                category TEXT NOT NULL,
+                currency TEXT DEFAULT 'EUR',
+                subscription INTEGER DEFAULT 0,
+                note TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
 
-    if st.button("Login"):
-        if password == PASSWORD:
-            st.session_state.auth = True
-            st.rerun()
-        else:
-            st.error("Wrong PIN")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS savings(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                target REAL NOT NULL,
+                saved REAL NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
 
-    st.stop()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budgets(
+                user_id INTEGER PRIMARY KEY,
+                monthly_limit REAL NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
 
-# ---------- LOAD DATA ----------
-try:
-    df = pd.read_csv(FILE)
-except:
-    df = pd.DataFrame(columns=["Date","Amount","Category","Note"])
+        safe_add_column(conn, "users", "created_at", "TEXT", backfill_current_timestamp=True)
+        safe_add_column(conn, "expenses", "currency", "TEXT DEFAULT 'EUR'")
+        safe_add_column(conn, "expenses", "subscription", "INTEGER DEFAULT 0")
+        safe_add_column(conn, "expenses", "note", "TEXT DEFAULT ''")
+        safe_add_column(conn, "expenses", "created_at", "TEXT", backfill_current_timestamp=True)
+        safe_add_column(conn, "savings", "created_at", "TEXT", backfill_current_timestamp=True)
 
-df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-df = df.dropna(subset=["Date"])
+init_db()
 
-# ---------- LOAD SUBSCRIPTIONS ----------
-try:
-    subs = pd.read_csv("subscriptions.csv")
-except:
-    subs = pd.DataFrame(columns=["Name","Amount","Category"])
 
-# ---------- APPLY SUBSCRIPTIONS ----------
+# =========================
+# AUTH
+# =========================
+def hash_password(password: str) -> bytes:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
 
-today = datetime.today()
 
-for i, sub in subs.iterrows():
+def check_password(password: str, password_hash: bytes) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash)
 
-    name = sub["Name"]
-    amount = sub["Amount"]
-    category = sub["Category"]
 
-    exists = df[
-        (df["Note"] == name) &
-        (df["Date"].dt.month == today.month) &
-        (df["Date"].dt.year == today.year)
-    ]
+def get_user(username: str):
+    with db() as conn:
+        return conn.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
 
-    if exists.empty:
 
-        new_row = pd.DataFrame({
-            "Date":[pd.to_datetime(f"{today.year}-{today.month}-01")],
-            "Amount":[amount],
-            "Category":[category],
-            "Note":[name]
-        })
-
-        df = pd.concat([df,new_row])
-df.to_csv(FILE,index=False)
-
-# ---------- SAVINGS ----------
-try:
-    savings = pd.read_csv("savings.csv")
-except:
-    savings = pd.DataFrame(columns=["Name","Target","Saved"])
-
-# ---------- CURRENCY ----------
-def get_rate(currency):
-
-    if currency == "EUR":
-        return 1
-
-    url = f"https://api.exchangerate.host/latest?base={currency}&symbols=EUR"
+def register_user(username: str, password: str):
+    username = username.strip()
+    if len(username) < 3:
+        return False, "Username must have at least 3 characters."
+    if len(password) < 6:
+        return False, "Password must have at least 6 characters."
 
     try:
-        r = requests.get(url).json()
-        return r["rates"]["EUR"]
-    except:
-        return 1
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (username, hash_password(password)),
+            )
+        return True, "Account created successfully."
+    except sqlite3.IntegrityError:
+        return False, "This username already exists."
+    except sqlite3.OperationalError as e:
+        return False, f"Database error: {e}"
 
 
-# ---------- SIDEBAR ----------
-page = st.sidebar.radio(
-"Navigation",
-[
-"Dashboard",
-"Add Expense",
-"Manage Expenses",
-"Subscriptions",
-"Savings",
-"Analytics",
-"Export"
-]
-)
+def require_login() -> int:
+    user_id = st.session_state.get("user_id")
+    if not user_id:
+        st.info("Please log in first.")
+        st.stop()
+    return int(user_id)
 
 
-currency = st.sidebar.selectbox(
-"Currency",
-["EUR","USD","UAH"]
-)
-
-rate = get_rate(currency)
-
-# ---------- DASHBOARD ----------
-if page == "Dashboard":
-
-    st.title("📊 Financial Dashboard")
-
-    # ---------- TOTAL METRICS ----------
-    col1, col2, col3, col4 = st.columns(4)
-
-    total_spent = df["Amount"].sum()
-    this_month_df = df[df["Date"].dt.month == datetime.today().month]
-    this_month_spent = this_month_df["Amount"].sum()
-    avg_expense = df["Amount"].mean() if len(df) > 0 else 0
-    transactions = len(df)
-
-    col1.metric("Total Spent", f"{total_spent:.2f} €")
-    col2.metric("This Month", f"{this_month_spent:.2f} €")
-    col3.metric("Average Expense", f"{avg_expense:.2f} €")
-    col4.metric("Transactions", transactions)
-
-    st.divider()
-
-    # ---------- EXPENSES BY CATEGORY ----------
-    st.subheader("Expenses by Category")
-    import plotly.express as px
-
-    cat_df = df.groupby("Category")["Amount"].sum().reset_index()
-    fig_cat = px.bar(cat_df, x="Category", y="Amount", color="Amount",
-                     color_continuous_scale="Tealgrn", text="Amount")
-    fig_cat.update_layout(yaxis_title="Amount (€)", xaxis_title="Category")
-    st.plotly_chart(fig_cat, use_container_width=True)
-
-    st.divider()
-
-    # ---------- TOP 3 EXPENSES ----------
-    st.subheader("Top 3 Expense Categories This Month")
-    top3 = this_month_df.groupby("Category")["Amount"].sum().sort_values(ascending=False).head(3)
-    st.table(top3.reset_index().rename(columns={"Amount":"This Month Spend (€)"}))
-
-    st.divider()
-
-    # ---------- HEATMAP OF DAILY SPENDING ----------
-    st.subheader("Heatmap: Daily Spending")
-    daily_df = this_month_df.groupby(this_month_df["Date"].dt.day)["Amount"].sum().reset_index()
-    daily_df.rename(columns={"Date":"Day"}, inplace=True)
-
-    fig_heat = px.density_heatmap(
-        daily_df,
-        x="Day",
-        y="Amount",        # одне поле
-        z="Amount",        # інтенсивність кольору
-        color_continuous_scale="Viridis"
-    )
-    st.plotly_chart(fig_heat, use_container_width=True)
-
-
-    # ---------- MONTHLY COMPARISON ----------
-    st.subheader("Monthly Comparison")
-    df["Month"] = df["Date"].dt.to_period("M")
-    month_cat = df.groupby(["Month","Category"])["Amount"].sum().reset_index()
-    last_month_str = (datetime.today().replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
-    this_month_str = datetime.today().strftime("%Y-%m")
-
-    last_df = month_cat[month_cat["Month"]==last_month_str]
-    this_df = month_cat[month_cat["Month"]==this_month_str]
-
-    comparison = pd.merge(this_df, last_df, on="Category", how="outer", suffixes=('_this','_last')).fillna(0)
-    comparison["Diff"] = comparison["Amount_this"] - comparison["Amount_last"]
-    comparison["% Change"] = comparison.apply(lambda x: (x["Diff"]/x["Amount_last"]*100) if x["Amount_last"]>0 else 100, axis=1)
-
-    st.dataframe(comparison[["Category","Amount_this","Amount_last","Diff","% Change"]])
-
-    st.divider()
-
-    # ---------- BUDGET ALERT ----------
-    st.subheader("Budget Alert / Forecast")
-    days_passed = datetime.today().day
-    days_total = (pd.Period(datetime.today(), freq='M').days_in_month)
-    forecast_total = (this_month_spent / days_passed) * days_total if days_passed > 0 else this_month_spent
-    st.metric("Forecast Total Spend", f"{forecast_total:.2f} €")
-
-    if "monthly_limit" in st.session_state:
-        limit = st.session_state.monthly_limit
-        if forecast_total > limit:
-            st.warning(f"You may exceed your monthly limit ({limit} €)")
-        else:
-            st.success(f"You’re on track to stay under your limit ({limit} €)")
-
-    st.divider()
-
-    # ---------- SAVINGS PROGRESS ----------
-    st.subheader("💰 Savings Progress")
-    if not savings.empty:
-        total_saved = savings["Saved"].sum()
-        total_target = savings["Target"].sum()
-        progress = total_saved / total_target if total_target > 0 else 0
-
-        col1, col2 = st.columns(2)
-        col1.metric("Total Saved", f"{total_saved:.2f} €")
-        col2.metric("Savings Target", f"{total_target:.2f} €")
-        st.progress(progress)
+# =========================
+# FX HELPERS
+# =========================
+@st.cache_data(ttl=3600)
+def get_rates_map(base: str = "EUR") -> dict:
+    if base == "EUR":
+        fallback = {"EUR": 1.0, "USD": 1.08, "UAH": 42.0}
+    elif base == "USD":
+        fallback = {"USD": 1.0, "EUR": 0.93, "UAH": 39.0}
     else:
-        st.info("No savings goals yet")
+        fallback = {base: 1.0, "EUR": 1.0, "USD": 1.0, "UAH": 1.0}
 
-# ---------- ADD EXPENSE ----------
-if page == "Add Expense":
+    try:
+        resp = requests.get(
+            f"https://api.exchangerate.host/latest?base={base}&symbols=EUR,USD,UAH",
+            timeout=10,
+        )
+        data = resp.json()
+        rates = data.get("rates", {})
+        if not isinstance(rates, dict) or not rates:
+            return fallback
+        rates[base] = 1.0
+        return {k: float(v) for k, v in rates.items()}
+    except Exception:
+        return fallback
 
-    st.title("➕ Add Expense")
 
-    col1,col2 = st.columns(2)
+def convert_to_eur(amount: float, currency: str) -> float:
+    if currency == "EUR":
+        return round(float(amount), 2)
+    rates = get_rates_map(currency)
+    eur_rate = rates.get("EUR", 1.0)
+    return round(float(amount) * float(eur_rate), 2)
 
-    with col1:
 
-        amount = st.number_input("Amount", min_value=0.01)
+def convert_from_eur(amount_eur: float, out_currency: str) -> float:
+    if out_currency == "EUR":
+        return round(float(amount_eur), 2)
+    rates = get_rates_map("EUR")
+    out_rate = rates.get(out_currency, 1.0)
+    return round(float(amount_eur) * float(out_rate), 2)
 
-        category = st.selectbox(
-        "Category",
-        [
-        "Food","Transport","Rent","Entertainment",
-        "Shopping","Health","Sports","Bills","Cafe","Other"
-        ])
 
-    with col2:
+def format_money(value: float, currency: str = "EUR") -> str:
+    return f"{value:,.2f} {currency}".replace(",", " ")
 
-        note = st.text_input("Note")
 
-        date = st.date_input("Date")
+# =========================
+# DATA HELPERS
+# =========================
+def load_expenses(user_id: int) -> pd.DataFrame:
+    with db() as conn:
+        df = pd.read_sql_query(
+            "SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC, id DESC",
+            conn,
+            params=(user_id,),
+        )
+    if df.empty:
+        return df
 
-    if st.button("Add Expense"):
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).copy()
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
+    df["subscription"] = pd.to_numeric(df["subscription"], errors="coerce").fillna(0).astype(int)
+    df["note"] = df["note"].fillna("")
+    df["currency"] = df["currency"].fillna("EUR")
+    return df
 
-        amount_eur = amount * rate
 
-        new = pd.DataFrame({
-        "Date":[pd.to_datetime(date)],
-        "Amount":[amount_eur],
-        "Category":[category],
-        "Note":[note]
-        })
+def load_savings(user_id: int) -> pd.DataFrame:
+    with db() as conn:
+        df = pd.read_sql_query(
+            "SELECT * FROM savings WHERE user_id = ? ORDER BY id DESC",
+            conn,
+            params=(user_id,),
+        )
+    if df.empty:
+        return df
+    df["target"] = pd.to_numeric(df["target"], errors="coerce").fillna(0.0)
+    df["saved"] = pd.to_numeric(df["saved"], errors="coerce").fillna(0.0)
+    return df
 
-        df = pd.concat([df,new])
 
-        df.to_csv(FILE,index=False)
+def make_display_df(df: pd.DataFrame, output_currency: str) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    out["display_amount"] = out["amount"].apply(lambda x: convert_from_eur(x, output_currency))
+    out["date_only"] = out["date"].dt.date
+    out["month"] = out["date"].dt.to_period("M").astype(str)
+    return out
 
-        st.success("Expense Added")
 
-# ---------- SUBSCRIPTIONS ----------
-if page == "Subscriptions":
+def add_expense(user_id: int, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0):
+    amount_eur = convert_to_eur(amount, currency)
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO expenses (user_id, date, amount, category, currency, subscription, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, expense_date.isoformat(), amount_eur, category, currency, int(subscription), note.strip()),
+        )
 
-    st.title("🔁 Subscriptions")
 
-    # ---------- ADD BUTTON ----------
-    if "add_sub" not in st.session_state:
-        st.session_state.add_sub = False
+def get_monthly_limit(user_id: int):
+    with db() as conn:
+        row = conn.execute("SELECT monthly_limit FROM budgets WHERE user_id = ?", (user_id,)).fetchone()
+    return float(row["monthly_limit"]) if row else None
 
-    if st.button("➕ Add Subscription"):
-        st.session_state.add_sub = True
 
-    # ---------- ADD FORM ----------
-    if st.session_state.add_sub:
+def set_monthly_limit(user_id: int, amount_eur: float):
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO budgets (user_id, monthly_limit)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET monthly_limit = excluded.monthly_limit
+            """,
+            (user_id, float(amount_eur)),
+        )
 
-        st.subheader("New Subscription")
 
-        col1, col2 = st.columns(2)
+def upsert_monthly_subscriptions(user_id: int) -> int:
+    df = load_expenses(user_id)
+    if df.empty:
+        return 0
 
-        with col1:
-            name = st.text_input("Name")
-            amount = st.number_input("Monthly Amount", min_value=0.0)
+    today = date.today()
+    month_start = date(today.year, today.month, 1).isoformat()
+    current_month_key = today.strftime("%Y-%m")
 
-        with col2:
-            category = st.text_input("Category")
-
-        col1, col2 = st.columns(2)
-
-        if col1.button("Save Subscription"):
-
-            new = pd.DataFrame({
-                "Name":[name],
-                "Amount":[amount],
-                "Category":[category]
-            })
-
-            subs = pd.concat([subs,new])
-
-            subs.to_csv("subscriptions.csv",index=False)
-
-            st.success("Subscription Added")
-
-            st.session_state.add_sub = False
-            st.rerun()
-
-        if col2.button("Cancel"):
-            st.session_state.add_sub = False
-            st.rerun()
-
-    st.divider()
-
-    # ---------- LIST ----------
-    st.subheader("Your Subscriptions")
-
+    subs = df[df["subscription"] == 1].copy()
     if subs.empty:
-        st.info("No subscriptions yet")
-    else:
+        return 0
 
-        for i,row in subs.iterrows():
+    created = 0
+    with db() as conn:
+        for _, row in subs.iterrows():
+            row_month_key = pd.to_datetime(row["date"]).strftime("%Y-%m")
+            if row_month_key == current_month_key:
+                continue
 
-            col1,col2,col3,col4 = st.columns([3,2,2,1])
-
-            col1.write(f"**{row['Name']}**")
-            col2.write(f"{row['Amount']} €")
-            col3.write(row["Category"])
-
-            if col4.button("Edit", key=f"edit{i}"):
-
-                st.session_state.edit_sub = i
-
-        # ---------- EDIT ----------
-        if "edit_sub" in st.session_state:
-
-            idx = st.session_state.edit_sub
-
-            sub = subs.loc[idx]
-
-            st.divider()
-            st.subheader("Edit Subscription")
-
-            col1,col2 = st.columns(2)
-
-            with col1:
-                new_name = st.text_input("Name", value=sub["Name"])
-                new_amount = st.number_input("Amount", value=float(sub["Amount"]))
-
-            with col2:
-                new_category = st.text_input("Category", value=sub["Category"])
-
-            col1,col2 = st.columns(2)
-
-            if col1.button("💾 Save Changes"):
-
-                subs.loc[idx,"Name"] = new_name
-                subs.loc[idx,"Amount"] = new_amount
-                subs.loc[idx,"Category"] = new_category
-
-                subs.to_csv("subscriptions.csv",index=False)
-
-                st.success("Subscription updated")
-
-                del st.session_state.edit_sub
-                st.rerun()
-
-            if col2.button("🗑 Delete Subscription"):
-
-                subs = subs.drop(idx)
-
-                subs.to_csv("subscriptions.csv",index=False)
-
-                st.success("Subscription deleted")
-
-                del st.session_state.edit_sub
-                st.rerun()
-
-
-# ---------- SAVINGS ----------
-if page == "Savings":
-
-    st.title("🎯 Savings Goals")
-
-    # Поділ на активні та завершені цілі
-    if savings.empty:
-        st.info("No savings goals yet")
-    else:
-        active_goals = savings[savings["Saved"] < savings["Target"]]
-        completed_goals = savings[savings["Saved"] >= savings["Target"]]
-
-        st.subheader("Active Goals")
-
-        # ---------- ACTIVE GOALS ----------
-        for i,row in active_goals.iterrows():
-
-            progress = row["Saved"] / row["Target"] if row["Target"] > 0 else 0
-            percent = int(progress*100)
-
-            # ---------- GOAL ACHIEVED ----------
-            if row["Saved"] >= row["Target"] and row["Target"] > 0:
-                st.success(f"🎉 Goal '{row['Name']}' achieved!")
-                if f"celebrated_{i}" not in st.session_state:
-                    st.balloons()
-                    st.session_state[f"celebrated_{i}"] = True
-
-            # ---------- COLOR LOGIC ----------
-            if progress < 0.3:
-                color = "s-red"
-            elif progress < 0.7:
-                color = "s-orange"
-            elif progress < 1:
-                color = "s-green"
-            else:
-                color = "s-blue"
-
-            st.markdown(
-                f"""
-                <div class="savings-card {color}">
-                <h3>{row['Name']}</h3>
-                <p>{row['Saved']} € / {row['Target']} €</p>
-                <p><b>{percent}% completed</b></p>
-                </div>
+            exists = conn.execute(
+                """
+                SELECT 1
+                FROM expenses
+                WHERE user_id = ?
+                  AND subscription = 1
+                  AND category = ?
+                  AND note = ?
+                  AND amount = ?
+                  AND substr(date, 1, 7) = ?
+                LIMIT 1
                 """,
-                unsafe_allow_html=True
-            )
+                (
+                    user_id,
+                    str(row["category"]),
+                    str(row["note"]),
+                    float(row["amount"]),
+                    current_month_key,
+                ),
+            ).fetchone()
 
-            st.progress(progress)
-
-            # ---------- ADD / DELETE ----------
-            col1,col2,col3 = st.columns(3)
-
-            with col1:
-                add_money = st.number_input(
-                    "Add money",
-                    min_value=0.0,
-                    key=f"add{i}"
+            if not exists:
+                conn.execute(
+                    """
+                    INSERT INTO expenses (user_id, date, amount, category, currency, subscription, note)
+                    VALUES (?, ?, ?, ?, ?, 1, ?)
+                    """,
+                    (
+                        user_id,
+                        month_start,
+                        float(row["amount"]),
+                        str(row["category"]),
+                        str(row["currency"] or "EUR"),
+                        str(row["note"]),
+                    ),
                 )
+                created += 1
 
-            with col2:
-                if st.button("➕ Add", key=f"addbtn{i}"):
-                    savings.loc[i,"Saved"] += add_money
-                    savings.to_csv("savings.csv",index=False)
-                    st.rerun()
-
-            with col3:
-                if st.button("🗑 Delete", key=f"del{i}"):
-                    savings = savings.drop(i)
-                    savings.to_csv("savings.csv",index=False)
-                    st.rerun()
-
-            st.divider()
-
-        # ---------- COMPLETED GOALS ----------
-        st.divider()
-        st.subheader("🏆 Completed Goals")
-
-        if completed_goals.empty:
-            st.write("No completed goals yet")
-
-        for i,row in completed_goals.iterrows():
-
-            st.markdown(
-                f"""
-                <div class="savings-card s-blue">
-                <h3>🏆 {row['Name']}</h3>
-                <p>{row['Saved']} € / {row['Target']} €</p>
-                <p><b>Goal achieved!</b></p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            st.progress(1.0)
-
-            col1,col2 = st.columns(2)
-
-            with col1:
-                if st.button("🎉 Celebrate", key=f"celebrate{i}"):
-                    st.balloons()
-
-            with col2:
-                if st.button("🗑 Remove goal", key=f"remove{i}"):
-                    savings = savings.drop(i)
-                    savings.to_csv("savings.csv",index=False)
-                    st.rerun()
-
-    # ---------- CREATE NEW GOAL ----------
-    st.divider()
-    st.subheader("➕ Create New Goal")
-
-    name = st.text_input("Goal Name")
-    target = st.number_input("Target Amount")
-    saved = st.number_input("Already Saved")
-
-    if st.button("Create Goal"):
-        new = pd.DataFrame({
-            "Name":[name],
-            "Target":[target],
-            "Saved":[saved]
-        })
-        savings = pd.concat([savings,new])
-        savings.to_csv("savings.csv",index=False)
-        st.rerun()
+    return created
 
 
-# ---------- ANALYTICS ----------
-if page == "Analytics":
+# =========================
+# SESSION
+# =========================
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+if "username" not in st.session_state:
+    st.session_state.username = None
 
-    st.title("📊 Financial Analytics")
 
-    # ---------- TOTAL METRICS ----------
-    col1,col2,col3,col4 = st.columns(4)
+# =========================
+# SIDEBAR / AUTH
+# =========================
+st.sidebar.title("👤 Account")
 
-    total_spent = df["Amount"].sum()
-    monthly_df = df[df["Date"].dt.month == datetime.today().month]
-    this_month = monthly_df["Amount"].sum()
-    avg = df["Amount"].mean() if len(df) > 0 else 0
-    transactions = len(df)
+if st.session_state.user_id:
+    st.sidebar.success(f"Logged in as {st.session_state.username}")
+    if st.sidebar.button("Log out", use_container_width=True):
+        st.session_state.user_id = None
+        st.session_state.username = None
+        rerun()
+else:
+    mode = st.sidebar.radio("Mode", ["Login", "Register"])
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
 
-    col1.metric("Total Spent", f"{total_spent:.2f} €")
-    col2.metric("This Month", f"{this_month:.2f} €")
-    col3.metric("Average Expense", f"{avg:.2f} €")
-    col4.metric("Transactions", transactions)
-
-    st.divider()
-
-    # ---------- SPENDING BY CATEGORY ----------
-    st.subheader("Expenses by Category")
-
-    import plotly.express as px
-
-    cat_df = df.groupby("Category")["Amount"].sum().reset_index()
-    fig_cat = px.bar(cat_df, x="Category", y="Amount", color="Amount",
-                     color_continuous_scale="Tealgrn", text="Amount")
-    fig_cat.update_layout(yaxis_title="Amount (€)", xaxis_title="Category")
-    st.plotly_chart(fig_cat, use_container_width=True)
-
-    st.divider()
-
-    # ---------- MONTHLY COMPARISON ----------
-    st.subheader("Monthly Comparison")
-
-    df["Month"] = df["Date"].dt.to_period("M")
-    month_cat = df.groupby(["Month","Category"])["Amount"].sum().reset_index()
-    last_month = (datetime.today().replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
-    this_month_str = datetime.today().strftime("%Y-%m")
-
-    last_df = month_cat[month_cat["Month"]==last_month]
-    this_df = month_cat[month_cat["Month"]==this_month_str]
-
-    comparison = pd.merge(this_df, last_df, on="Category", how="outer", suffixes=('_this','_last')).fillna(0)
-    comparison["Diff"] = comparison["Amount_this"] - comparison["Amount_last"]
-    comparison["% Change"] = comparison.apply(lambda x: (x["Diff"]/x["Amount_last"]*100) if x["Amount_last"]>0 else 100, axis=1)
-
-    st.dataframe(comparison[["Category","Amount_this","Amount_last","Diff","% Change"]])
-
-    st.divider()
-
-    # ---------- SPENDING GROWTH ALERT ----------
-    st.subheader("📈 Categories with Highest Growth")
-
-    growth = comparison.sort_values("Diff", ascending=False)
-    st.write(growth[["Category","Diff","% Change"]].head(5))
-
-    st.divider()
-
-    # ---------- FORECAST ----------
-    st.subheader("Forecast for This Month")
-
-    days_passed = datetime.today().day
-    days_total = (pd.Period(datetime.today(), freq='M').days_in_month)
-
-    forecast_total = (this_month / days_passed) * days_total if days_passed>0 else this_month
-    st.metric("Forecast Total Spend", f"{forecast_total:.2f} €")
-
-    if "monthly_limit" in st.session_state:
-        limit = st.session_state.monthly_limit
-        if forecast_total > limit:
-            st.warning(f"You may exceed your monthly limit of {limit} €!")
-        else:
-            st.success(f"You're on track to stay under your limit ({limit} €)")
-
-    st.divider()
-
-    # ---------- SAVINGS PROGRESS ----------
-    st.subheader("💰 Savings Progress")
-
-    if not savings.empty:
-        total_saved = savings["Saved"].sum()
-        total_target = savings["Target"].sum()
-        progress = total_saved / total_target if total_target > 0 else 0
-
-        col1,col2 = st.columns(2)
-        col1.metric("Total Saved", f"{total_saved:.2f} €")
-        col2.metric("Savings Target", f"{total_target:.2f} €")
-        st.progress(progress)
+    if mode == "Login":
+        if st.sidebar.button("Login", use_container_width=True):
+            user = get_user(username)
+            if user and check_password(password, user["password_hash"]):
+                st.session_state.user_id = int(user["id"])
+                st.session_state.username = user["username"]
+                rerun()
+            else:
+                st.sidebar.error("Invalid username or password.")
     else:
-        st.info("No savings goals yet")
+        if st.sidebar.button("Create account", use_container_width=True):
+            ok, message = register_user(username, password)
+            if ok:
+                st.sidebar.success(message)
+            else:
+                st.sidebar.error(message)
 
-# ---------- EXPORT ----------
-if page == "Export":
+if not st.session_state.user_id:
+    st.title("💸 Expense Tracker Pro")
+    st.caption("Log in or register in the sidebar.")
+    st.stop()
 
-    st.title("Export Data")
 
-    st.download_button(
-    "Download CSV",
-    df.to_csv(index=False),
-    "expenses.csv"
-    )
+# =========================
+# NAVIGATION
+# =========================
+user_id = require_login()
+created_subs = upsert_monthly_subscriptions(user_id)
+if created_subs:
+    st.toast(f"Added {created_subs} recurring subscription(s) for this month.")
 
-    df.to_excel("expenses.xlsx")
+st.sidebar.divider()
+display_currency = st.sidebar.selectbox("Display currency", SUPPORTED_CURRENCIES, index=0)
+page = st.sidebar.radio(
+    "Navigation",
+    ["Dashboard", "Add Expense", "Manage Expenses", "Subscriptions", "Savings", "Analytics", "Export"],
+)
 
-    st.download_button(
-    "Download Excel",
-    open("expenses.xlsx","rb"),
-    "expenses.xlsx"
-    )
-# ---------- MANAGE EXPENSES ----------
-if page == "Manage Expenses":
+st.title("💸 Expense Tracker Pro")
+st.caption("Multi-user tracker with subscriptions, savings, analytics, and export.")
 
-    st.title("✏️ Manage Expenses")
+df = load_expenses(user_id)
+display_df = make_display_df(df, display_currency)
+savings_df = load_savings(user_id)
+
+
+# =========================
+# DASHBOARD
+# =========================
+if page == "Dashboard":
+    today = pd.Timestamp.today()
+    if display_df.empty:
+        this_month_df = pd.DataFrame()
+    else:
+        this_month_df = display_df[
+            (display_df["date"].dt.year == today.year) &
+            (display_df["date"].dt.month == today.month)
+        ].copy()
+
+    total_spent = float(display_df["display_amount"].sum()) if not display_df.empty else 0.0
+    month_spent = float(this_month_df["display_amount"].sum()) if not this_month_df.empty else 0.0
+    avg_spent = float(display_df["display_amount"].mean()) if not display_df.empty else 0.0
+    tx_count = int(len(display_df))
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total spent", format_money(total_spent, display_currency))
+    c2.metric("This month", format_money(month_spent, display_currency))
+    c3.metric("Average expense", format_money(avg_spent, display_currency))
+    c4.metric("Transactions", tx_count)
+
+    st.divider()
+    left, right = st.columns([1.4, 1])
+
+    with left:
+        st.subheader("Expenses by category")
+        if display_df.empty:
+            st.info("No expenses yet.")
+        else:
+            cat_df = (
+                display_df.groupby("category", as_index=False)["display_amount"]
+                .sum()
+                .sort_values("display_amount", ascending=False)
+            )
+            cat_df = cat_df.set_index("category")
+            st.bar_chart(cat_df)
+
+    with right:
+        st.subheader("Budget")
+        current_limit_eur = get_monthly_limit(user_id)
+        current_limit_display = convert_from_eur(current_limit_eur, display_currency) if current_limit_eur is not None else 0.0
+        new_limit_display = st.number_input(
+            f"Monthly limit ({display_currency})",
+            min_value=0.0,
+            value=float(current_limit_display),
+            step=10.0,
+        )
+        if st.button("Save monthly limit", use_container_width=True):
+            new_limit_eur = convert_to_eur(new_limit_display, display_currency)
+            set_monthly_limit(user_id, new_limit_eur)
+            st.success("Monthly limit saved.")
+            rerun()
+
+        if current_limit_eur is not None:
+            limit_display = convert_from_eur(current_limit_eur, display_currency)
+            progress = min(month_spent / limit_display, 1.0) if limit_display > 0 else 0.0
+            st.progress(progress)
+            if month_spent > limit_display:
+                st.warning(f"You are over budget by {format_money(month_spent - limit_display, display_currency)}.")
+            else:
+                st.success(f"Left this month: {format_money(limit_display - month_spent, display_currency)}")
+        else:
+            st.info("No monthly limit set.")
+
+    st.divider()
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.subheader("Top categories this month")
+        if this_month_df.empty:
+            st.info("No expenses this month.")
+        else:
+            top = (
+                this_month_df.groupby("category", as_index=False)["display_amount"]
+                .sum()
+                .sort_values("display_amount", ascending=False)
+                .head(5)
+            )
+            top = top.rename(columns={"display_amount": f"Amount ({display_currency})"})
+            st.dataframe(top, use_container_width=True, hide_index=True)
+
+    with c2:
+        st.subheader("Savings progress")
+        if savings_df.empty:
+            st.info("No savings goals yet.")
+        else:
+            for _, row in savings_df.iterrows():
+                progress = (row["saved"] / row["target"]) if row["target"] > 0 else 0.0
+                st.write(f"**{row['name']}** — {format_money(row['saved'], 'EUR')} / {format_money(row['target'], 'EUR')}")
+                st.progress(float(min(max(progress, 0.0), 1.0)))
+
+    st.divider()
+    st.subheader("Recent expenses")
+    if display_df.empty:
+        st.info("No expenses to show.")
+    else:
+        recent = display_df[["date_only", "category", "display_amount", "currency", "subscription", "note"]].head(15).copy()
+        recent["subscription"] = recent["subscription"].map({1: "Yes", 0: "No"})
+        recent = recent.rename(columns={
+            "date_only": "Date",
+            "category": "Category",
+            "display_amount": f"Amount ({display_currency})",
+            "currency": "Original currency",
+            "subscription": "Subscription",
+            "note": "Note",
+        })
+        st.dataframe(recent, use_container_width=True, hide_index=True)
+
+elif page == "Add Expense":
+    st.subheader("Add a new expense")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        amount = st.number_input("Amount", min_value=0.01, step=0.5)
+        currency = st.selectbox("Currency", SUPPORTED_CURRENCIES)
+        category = st.selectbox("Category", DEFAULT_CATEGORIES)
+    with c2:
+        expense_date = st.date_input("Date", value=date.today())
+        note = st.text_input("Note / description")
+        is_subscription = st.checkbox("Recurring monthly subscription")
+
+    if st.button("Add expense", use_container_width=True):
+        add_expense(
+            user_id=user_id,
+            expense_date=expense_date,
+            amount=amount,
+            category=category,
+            currency=currency,
+            note=note,
+            subscription=1 if is_subscription else 0,
+        )
+        st.success("Expense added.")
+        rerun()
+
+elif page == "Manage Expenses":
+    st.subheader("Manage expenses")
 
     if df.empty:
-        st.info("No expenses yet")
+        st.info("No expenses yet.")
     else:
+        filter_category = st.selectbox("Filter by category", ["All"] + sorted(df["category"].dropna().unique().tolist()))
+        show_subs_only = st.checkbox("Only subscriptions")
 
-        df_display = df.copy()
+        filtered = df.copy()
+        if filter_category != "All":
+            filtered = filtered[filtered["category"] == filter_category]
+        if show_subs_only:
+            filtered = filtered[filtered["subscription"] == 1]
 
-        df_display["Label"] = (
-            df_display["Date"].dt.strftime("%Y-%m-%d")
-            + " | "
-            + df_display["Category"]
-            + " | "
-            + df_display["Amount"].round(2).astype(str)
-            + " €"
-            + " | "
-            + df_display["Note"].fillna("")
+        if filtered.empty:
+            st.info("No matching expenses.")
+        else:
+            filtered = filtered.copy()
+            filtered["label"] = (
+                filtered["date"].dt.strftime("%Y-%m-%d")
+                + " | " + filtered["category"].astype(str)
+                + " | " + filtered["amount"].round(2).astype(str) + " EUR"
+                + " | " + filtered["note"].fillna("")
+            )
+            selected_label = st.selectbox("Select expense", filtered["label"].tolist())
+            expense = filtered.loc[filtered["label"] == selected_label].iloc[0]
+
+            c1, c2 = st.columns(2)
+            with c1:
+                edit_amount_eur = st.number_input("Amount in EUR", min_value=0.0, value=float(expense["amount"]), step=0.5)
+                current_category = expense["category"] if expense["category"] in DEFAULT_CATEGORIES else "Other"
+                edit_category = st.selectbox("Category", DEFAULT_CATEGORIES, index=DEFAULT_CATEGORIES.index(current_category))
+                edit_subscription = st.checkbox("Recurring subscription", value=bool(expense["subscription"]))
+            with c2:
+                edit_date = st.date_input("Date", value=pd.to_datetime(expense["date"]).date())
+                edit_note = st.text_input("Note", value=str(expense["note"] or ""))
+                current_currency = expense["currency"] if expense["currency"] in SUPPORTED_CURRENCIES else "EUR"
+                edit_currency = st.selectbox("Original currency label", SUPPORTED_CURRENCIES, index=SUPPORTED_CURRENCIES.index(current_currency))
+
+            b1, b2 = st.columns(2)
+            if b1.button("Save changes", use_container_width=True):
+                with db() as conn:
+                    conn.execute(
+                        """
+                        UPDATE expenses
+                        SET amount = ?, category = ?, date = ?, note = ?, currency = ?, subscription = ?
+                        WHERE id = ? AND user_id = ?
+                        """,
+                        (
+                            float(edit_amount_eur),
+                            edit_category,
+                            edit_date.isoformat(),
+                            edit_note.strip(),
+                            edit_currency,
+                            1 if edit_subscription else 0,
+                            int(expense["id"]),
+                            user_id,
+                        ),
+                    )
+                st.success("Expense updated.")
+                rerun()
+
+            if b2.button("Delete expense", use_container_width=True):
+                with db() as conn:
+                    conn.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (int(expense["id"]), user_id))
+                st.success("Expense deleted.")
+                rerun()
+
+elif page == "Subscriptions":
+    st.subheader("Recurring subscriptions")
+    st.caption("Subscriptions are stored in the expenses table and auto-added once per month.")
+
+    subs = df[df["subscription"] == 1].copy() if not df.empty else pd.DataFrame()
+
+    if subs.empty:
+        st.info("No subscriptions yet. Add one from 'Add Expense' and tick the recurring option.")
+    else:
+        subs["date"] = subs["date"].dt.date
+        show = subs[["date", "category", "amount", "currency", "note"]].rename(columns={
+            "date": "Start date",
+            "category": "Category",
+            "amount": "Amount (EUR)",
+            "currency": "Original currency",
+            "note": "Name / note",
+        })
+        st.dataframe(show, use_container_width=True, hide_index=True)
+
+elif page == "Savings":
+    st.subheader("Savings goals")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        goal_name = st.text_input("Goal name")
+    with c2:
+        goal_target = st.number_input("Target (€)", min_value=0.0, step=10.0)
+    with c3:
+        goal_saved = st.number_input("Already saved (€)", min_value=0.0, step=10.0)
+
+    if st.button("Add goal", use_container_width=True):
+        if not goal_name.strip():
+            st.error("Goal name cannot be empty.")
+        else:
+            with db() as conn:
+                conn.execute(
+                    "INSERT INTO savings (user_id, name, target, saved) VALUES (?, ?, ?, ?)",
+                    (user_id, goal_name.strip(), float(goal_target), float(goal_saved)),
+                )
+            st.success("Savings goal added.")
+            rerun()
+
+    st.divider()
+    if savings_df.empty:
+        st.info("No savings goals yet.")
+    else:
+        for _, row in savings_df.iterrows():
+            st.write(f"### {row['name']}")
+            progress = row["saved"] / row["target"] if row["target"] > 0 else 0.0
+            st.progress(float(min(max(progress, 0.0), 1.0)))
+            st.write(f"Saved: {format_money(row['saved'], 'EUR')} / Target: {format_money(row['target'], 'EUR')}")
+
+            add_more = st.number_input(
+                f"Add money to {row['name']}",
+                min_value=0.0,
+                step=10.0,
+                key=f"add_goal_{row['id']}",
+            )
+            x1, x2 = st.columns(2)
+            if x1.button(f"Update {row['name']}", key=f"update_goal_{row['id']}", use_container_width=True):
+                with db() as conn:
+                    conn.execute(
+                        "UPDATE savings SET saved = saved + ? WHERE id = ? AND user_id = ?",
+                        (float(add_more), int(row["id"]), user_id),
+                    )
+                st.success("Savings updated.")
+                rerun()
+
+            if x2.button(f"Delete {row['name']}", key=f"delete_goal_{row['id']}", use_container_width=True):
+                with db() as conn:
+                    conn.execute("DELETE FROM savings WHERE id = ? AND user_id = ?", (int(row["id"]), user_id))
+                st.success("Goal deleted.")
+                rerun()
+
+            st.divider()
+
+elif page == "Analytics":
+    st.subheader("Analytics")
+
+    if display_df.empty:
+        st.info("No data to analyze yet.")
+    else:
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.markdown("**Monthly trend**")
+            monthly = display_df.groupby("month", as_index=False)["display_amount"].sum()
+            monthly = monthly.set_index("month")
+            st.line_chart(monthly)
+
+        with c2:
+            st.markdown("**Daily spending this month**")
+            now = pd.Timestamp.today()
+            this_month = display_df[
+                (display_df["date"].dt.year == now.year) &
+                (display_df["date"].dt.month == now.month)
+            ].copy()
+
+            if this_month.empty:
+                st.info("No expenses this month.")
+            else:
+                this_month["day"] = this_month["date"].dt.day
+                daily = this_month.groupby("day", as_index=False)["display_amount"].sum().set_index("day")
+                st.bar_chart(daily)
+
+        st.divider()
+        st.markdown("**Month-over-month category comparison**")
+
+        now = pd.Timestamp.today()
+        this_month_key = now.strftime("%Y-%m")
+        prev_month_date = (now.replace(day=1) - pd.Timedelta(days=1))
+        prev_month_key = prev_month_date.strftime("%Y-%m")
+
+        grouped = display_df.groupby(["month", "category"], as_index=False)["display_amount"].sum()
+
+        this_df = grouped[grouped["month"] == this_month_key][["category", "display_amount"]].rename(
+            columns={"display_amount": "this_month"}
+        )
+        prev_df = grouped[grouped["month"] == prev_month_key][["category", "display_amount"]].rename(
+            columns={"display_amount": "last_month"}
         )
 
-        choice = st.selectbox(
-            "Select expense",
-            df_display["Label"]
+        comparison = pd.merge(this_df, prev_df, on="category", how="outer").fillna(0.0)
+        comparison["diff"] = comparison["this_month"] - comparison["last_month"]
+        comparison["pct_change"] = comparison.apply(
+            lambda row: ((row["diff"] / row["last_month"]) * 100.0)
+            if row["last_month"] > 0 else (100.0 if row["this_month"] > 0 else 0.0),
+            axis=1
+        )
+        st.dataframe(comparison.sort_values("diff", ascending=False), use_container_width=True, hide_index=True)
+
+        days_passed = max(now.day, 1)
+        days_total = monthrange(now.year, now.month)[1]
+        this_month_total = float(this_df["this_month"].sum()) if not this_df.empty else 0.0
+        forecast = (this_month_total / days_passed) * days_total if days_passed > 0 else 0.0
+        st.metric("Forecast for this month", format_money(forecast, display_currency))
+
+elif page == "Export":
+    st.subheader("Export your data")
+
+    if df.empty and savings_df.empty:
+        st.info("Nothing to export yet.")
+    else:
+        export_expenses = df.copy()
+        if not export_expenses.empty:
+            export_expenses["date"] = export_expenses["date"].dt.strftime("%Y-%m-%d")
+
+        st.download_button(
+            "Download expenses CSV",
+            data=export_expenses.to_csv(index=False).encode("utf-8"),
+            file_name="expenses.csv",
+            mime="text/csv",
+            use_container_width=True,
         )
 
-        idx = df_display[df_display["Label"] == choice].index[0]
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            export_expenses.to_excel(writer, index=False, sheet_name="Expenses")
+            savings_df.to_excel(writer, index=False, sheet_name="Savings")
+        excel_buffer.seek(0)
 
-        expense = df.loc[idx]
-
-        st.subheader("Edit Expense")
-
-        col1,col2 = st.columns(2)
-
-        with col1:
-
-            new_amount = st.number_input(
-                "Amount",
-                value=float(expense["Amount"])
-            )
-
-            new_category = st.text_input(
-                "Category",
-                value=expense["Category"]
-            )
-
-        with col2:
-
-            new_note = st.text_input(
-                "Note",
-                value=str(expense["Note"])
-            )
-
-            new_date = st.date_input(
-                "Date",
-                value=expense["Date"]
-            )
-
-        col1,col2 = st.columns(2)
-
-        if col1.button("💾 Save Changes"):
-
-            df.loc[idx,"Amount"] = new_amount
-            df.loc[idx,"Category"] = new_category
-            df.loc[idx,"Note"] = new_note
-            df.loc[idx,"Date"] = pd.to_datetime(new_date)
-
-            df.to_csv(FILE,index=False)
-
-            st.success("Expense updated")
-
-        if col2.button("🗑 Delete Expense"):
-
-            df = df.drop(idx)
-
-            df.to_csv(FILE,index=False)
-
-            st.success("Expense deleted")
+        st.download_button(
+            "Download Excel workbook",
+            data=excel_buffer.getvalue(),
+            file_name="finance_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
