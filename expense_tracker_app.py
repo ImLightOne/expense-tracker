@@ -28,6 +28,29 @@ padding:20px;
 border-radius:15px;
 box-shadow:0px 4px 10px rgba(0,0,0,0.3);
 }
+.savings-card {
+    padding:20px;
+    border-radius:15px;
+    margin-bottom:15px;
+    color:white;
+    font-weight:500;
+}
+
+.s-red {
+    background:#5c1a1a;
+}
+
+.s-orange {
+    background:#5c3d1a;
+}
+
+.s-green {
+    background:#1f4d2e;
+}
+
+.s-blue {
+    background:#1a3b5c;
+}
 
 </style>
 """, unsafe_allow_html=True)
@@ -145,54 +168,103 @@ if page == "Dashboard":
 
     st.title("📊 Financial Dashboard")
 
-    col1,col2,col3,col4 = st.columns(4)
+    # ---------- TOTAL METRICS ----------
+    col1, col2, col3, col4 = st.columns(4)
 
-    total = df["Amount"].sum()
-
-    this_month = df[df["Date"].dt.month == datetime.today().month]
-
-    monthly = this_month["Amount"].sum()
-
-    avg = df["Amount"].mean() if len(df)>0 else 0
-
+    total_spent = df["Amount"].sum()
+    this_month_df = df[df["Date"].dt.month == datetime.today().month]
+    this_month_spent = this_month_df["Amount"].sum()
+    avg_expense = df["Amount"].mean() if len(df) > 0 else 0
     transactions = len(df)
 
-    col1.metric("Total Spent", f"{total:.2f} €")
-    col2.metric("This Month", f"{monthly:.2f} €")
-    col3.metric("Average Expense", f"{avg:.2f} €")
+    col1.metric("Total Spent", f"{total_spent:.2f} €")
+    col2.metric("This Month", f"{this_month_spent:.2f} €")
+    col3.metric("Average Expense", f"{avg_expense:.2f} €")
     col4.metric("Transactions", transactions)
 
+    st.divider()
+
+    # ---------- EXPENSES BY CATEGORY ----------
     st.subheader("Expenses by Category")
+    import plotly.express as px
 
-    cat = df.groupby("Category")["Amount"].sum()
+    cat_df = df.groupby("Category")["Amount"].sum().reset_index()
+    fig_cat = px.bar(cat_df, x="Category", y="Amount", color="Amount",
+                     color_continuous_scale="Tealgrn", text="Amount")
+    fig_cat.update_layout(yaxis_title="Amount (€)", xaxis_title="Category")
+    st.plotly_chart(fig_cat, use_container_width=True)
 
-    st.bar_chart(cat)
+    st.divider()
 
-    st.subheader("Monthly Trend")
+    # ---------- TOP 3 EXPENSES ----------
+    st.subheader("Top 3 Expense Categories This Month")
+    top3 = this_month_df.groupby("Category")["Amount"].sum().sort_values(ascending=False).head(3)
+    st.table(top3.reset_index().rename(columns={"Amount":"This Month Spend (€)"}))
 
-    trend = df.copy()
+    st.divider()
 
-    trend["Month"] = trend["Date"].dt.to_period("M")
+    # ---------- HEATMAP OF DAILY SPENDING ----------
+    st.subheader("Heatmap: Daily Spending")
+    daily_df = this_month_df.groupby(this_month_df["Date"].dt.day)["Amount"].sum().reset_index()
+    daily_df.rename(columns={"Date":"Day"}, inplace=True)
 
-    trend = trend.groupby("Month")["Amount"].sum()
+    fig_heat = px.density_heatmap(
+        daily_df,
+        x="Day",
+        y="Amount",        # одне поле
+        z="Amount",        # інтенсивність кольору
+        color_continuous_scale="Viridis"
+    )
+    st.plotly_chart(fig_heat, use_container_width=True)
 
-    st.line_chart(trend)
 
-    # ---------- FORECAST ----------
-    today = datetime.today()
+    # ---------- MONTHLY COMPARISON ----------
+    st.subheader("Monthly Comparison")
+    df["Month"] = df["Date"].dt.to_period("M")
+    month_cat = df.groupby(["Month","Category"])["Amount"].sum().reset_index()
+    last_month_str = (datetime.today().replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
+    this_month_str = datetime.today().strftime("%Y-%m")
 
-    current_month = df[df["Date"].dt.month == today.month]
+    last_df = month_cat[month_cat["Month"]==last_month_str]
+    this_df = month_cat[month_cat["Month"]==this_month_str]
 
-    E_current = current_month["Amount"].sum()
+    comparison = pd.merge(this_df, last_df, on="Category", how="outer", suffixes=('_this','_last')).fillna(0)
+    comparison["Diff"] = comparison["Amount_this"] - comparison["Amount_last"]
+    comparison["% Change"] = comparison.apply(lambda x: (x["Diff"]/x["Amount_last"]*100) if x["Amount_last"]>0 else 100, axis=1)
 
-    D_passed = today.day
+    st.dataframe(comparison[["Category","Amount_this","Amount_last","Diff","% Change"]])
 
-    D_total = calendar.monthrange(today.year,today.month)[1]
+    st.divider()
 
-    forecast = (E_current/D_passed)*D_total if D_passed>0 else 0
+    # ---------- BUDGET ALERT ----------
+    st.subheader("Budget Alert / Forecast")
+    days_passed = datetime.today().day
+    days_total = (pd.Period(datetime.today(), freq='M').days_in_month)
+    forecast_total = (this_month_spent / days_passed) * days_total if days_passed > 0 else this_month_spent
+    st.metric("Forecast Total Spend", f"{forecast_total:.2f} €")
 
-    st.metric("Forecast end of month", f"{forecast:.2f} €")
+    if "monthly_limit" in st.session_state:
+        limit = st.session_state.monthly_limit
+        if forecast_total > limit:
+            st.warning(f"You may exceed your monthly limit ({limit} €)")
+        else:
+            st.success(f"You’re on track to stay under your limit ({limit} €)")
 
+    st.divider()
+
+    # ---------- SAVINGS PROGRESS ----------
+    st.subheader("💰 Savings Progress")
+    if not savings.empty:
+        total_saved = savings["Saved"].sum()
+        total_target = savings["Target"].sum()
+        progress = total_saved / total_target if total_target > 0 else 0
+
+        col1, col2 = st.columns(2)
+        col1.metric("Total Saved", f"{total_saved:.2f} €")
+        col2.metric("Savings Target", f"{total_target:.2f} €")
+        st.progress(progress)
+    else:
+        st.info("No savings goals yet")
 
 # ---------- ADD EXPENSE ----------
 if page == "Add Expense":
@@ -356,69 +428,221 @@ if page == "Savings":
 
     st.title("🎯 Savings Goals")
 
-    for i,row in savings.iterrows():
+    # Поділ на активні та завершені цілі
+    if savings.empty:
+        st.info("No savings goals yet")
+    else:
+        active_goals = savings[savings["Saved"] < savings["Target"]]
+        completed_goals = savings[savings["Saved"] >= savings["Target"]]
 
-        progress = row["Saved"]/row["Target"]
+        st.subheader("Active Goals")
 
-        st.subheader(row["Name"])
+        # ---------- ACTIVE GOALS ----------
+        for i,row in active_goals.iterrows():
 
-        st.progress(progress)
+            progress = row["Saved"] / row["Target"] if row["Target"] > 0 else 0
+            percent = int(progress*100)
 
-        st.write(f"{row['Saved']} / {row['Target']} €")
+            # ---------- GOAL ACHIEVED ----------
+            if row["Saved"] >= row["Target"] and row["Target"] > 0:
+                st.success(f"🎉 Goal '{row['Name']}' achieved!")
+                if f"celebrated_{i}" not in st.session_state:
+                    st.balloons()
+                    st.session_state[f"celebrated_{i}"] = True
 
-    name = st.text_input("Goal")
+            # ---------- COLOR LOGIC ----------
+            if progress < 0.3:
+                color = "s-red"
+            elif progress < 0.7:
+                color = "s-orange"
+            elif progress < 1:
+                color = "s-green"
+            else:
+                color = "s-blue"
 
+            st.markdown(
+                f"""
+                <div class="savings-card {color}">
+                <h3>{row['Name']}</h3>
+                <p>{row['Saved']} € / {row['Target']} €</p>
+                <p><b>{percent}% completed</b></p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.progress(progress)
+
+            # ---------- ADD / DELETE ----------
+            col1,col2,col3 = st.columns(3)
+
+            with col1:
+                add_money = st.number_input(
+                    "Add money",
+                    min_value=0.0,
+                    key=f"add{i}"
+                )
+
+            with col2:
+                if st.button("➕ Add", key=f"addbtn{i}"):
+                    savings.loc[i,"Saved"] += add_money
+                    savings.to_csv("savings.csv",index=False)
+                    st.rerun()
+
+            with col3:
+                if st.button("🗑 Delete", key=f"del{i}"):
+                    savings = savings.drop(i)
+                    savings.to_csv("savings.csv",index=False)
+                    st.rerun()
+
+            st.divider()
+
+        # ---------- COMPLETED GOALS ----------
+        st.divider()
+        st.subheader("🏆 Completed Goals")
+
+        if completed_goals.empty:
+            st.write("No completed goals yet")
+
+        for i,row in completed_goals.iterrows():
+
+            st.markdown(
+                f"""
+                <div class="savings-card s-blue">
+                <h3>🏆 {row['Name']}</h3>
+                <p>{row['Saved']} € / {row['Target']} €</p>
+                <p><b>Goal achieved!</b></p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.progress(1.0)
+
+            col1,col2 = st.columns(2)
+
+            with col1:
+                if st.button("🎉 Celebrate", key=f"celebrate{i}"):
+                    st.balloons()
+
+            with col2:
+                if st.button("🗑 Remove goal", key=f"remove{i}"):
+                    savings = savings.drop(i)
+                    savings.to_csv("savings.csv",index=False)
+                    st.rerun()
+
+    # ---------- CREATE NEW GOAL ----------
+    st.divider()
+    st.subheader("➕ Create New Goal")
+
+    name = st.text_input("Goal Name")
     target = st.number_input("Target Amount")
-
     saved = st.number_input("Already Saved")
 
-    if st.button("Add Goal"):
-
+    if st.button("Create Goal"):
         new = pd.DataFrame({
-        "Name":[name],
-        "Target":[target],
-        "Saved":[saved]
+            "Name":[name],
+            "Target":[target],
+            "Saved":[saved]
         })
-
         savings = pd.concat([savings,new])
-
         savings.to_csv("savings.csv",index=False)
+        st.rerun()
 
-        st.success("Goal Added")
 
 # ---------- ANALYTICS ----------
 if page == "Analytics":
 
-    st.title("📈 Analytics")
+    st.title("📊 Financial Analytics")
+
+    # ---------- TOTAL METRICS ----------
+    col1,col2,col3,col4 = st.columns(4)
+
+    total_spent = df["Amount"].sum()
+    monthly_df = df[df["Date"].dt.month == datetime.today().month]
+    this_month = monthly_df["Amount"].sum()
+    avg = df["Amount"].mean() if len(df) > 0 else 0
+    transactions = len(df)
+
+    col1.metric("Total Spent", f"{total_spent:.2f} €")
+    col2.metric("This Month", f"{this_month:.2f} €")
+    col3.metric("Average Expense", f"{avg:.2f} €")
+    col4.metric("Transactions", transactions)
+
+    st.divider()
+
+    # ---------- SPENDING BY CATEGORY ----------
+    st.subheader("Expenses by Category")
+
+    import plotly.express as px
+
+    cat_df = df.groupby("Category")["Amount"].sum().reset_index()
+    fig_cat = px.bar(cat_df, x="Category", y="Amount", color="Amount",
+                     color_continuous_scale="Tealgrn", text="Amount")
+    fig_cat.update_layout(yaxis_title="Amount (€)", xaxis_title="Category")
+    st.plotly_chart(fig_cat, use_container_width=True)
+
+    st.divider()
+
+    # ---------- MONTHLY COMPARISON ----------
+    st.subheader("Monthly Comparison")
 
     df["Month"] = df["Date"].dt.to_period("M")
+    month_cat = df.groupby(["Month","Category"])["Amount"].sum().reset_index()
+    last_month = (datetime.today().replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
+    this_month_str = datetime.today().strftime("%Y-%m")
 
-    this_month = df[df["Month"] == df["Month"].max()]
+    last_df = month_cat[month_cat["Month"]==last_month]
+    this_df = month_cat[month_cat["Month"]==this_month_str]
 
-    last_month = df[df["Month"] == (df["Month"].max()-1)]
+    comparison = pd.merge(this_df, last_df, on="Category", how="outer", suffixes=('_this','_last')).fillna(0)
+    comparison["Diff"] = comparison["Amount_this"] - comparison["Amount_last"]
+    comparison["% Change"] = comparison.apply(lambda x: (x["Diff"]/x["Amount_last"]*100) if x["Amount_last"]>0 else 100, axis=1)
 
-    this_cat = this_month.groupby("Category")["Amount"].sum()
+    st.dataframe(comparison[["Category","Amount_this","Amount_last","Diff","% Change"]])
 
-    last_cat = last_month.groupby("Category")["Amount"].sum()
+    st.divider()
 
-    compare = pd.concat([this_cat,last_cat],axis=1)
+    # ---------- SPENDING GROWTH ALERT ----------
+    st.subheader("📈 Categories with Highest Growth")
 
-    compare.columns=["This Month","Last Month"]
+    growth = comparison.sort_values("Diff", ascending=False)
+    st.write(growth[["Category","Diff","% Change"]].head(5))
 
-    compare["Change %"] = (
-    (compare["This Month"] - compare["Last Month"])
-    / compare["Last Month"]
-    )*100
+    st.divider()
 
-    st.subheader("Month Comparison")
+    # ---------- FORECAST ----------
+    st.subheader("Forecast for This Month")
 
-    st.dataframe(compare)
+    days_passed = datetime.today().day
+    days_total = (pd.Period(datetime.today(), freq='M').days_in_month)
 
-    st.subheader("Fastest Growing Categories")
+    forecast_total = (this_month / days_passed) * days_total if days_passed>0 else this_month
+    st.metric("Forecast Total Spend", f"{forecast_total:.2f} €")
 
-    growth = compare.sort_values("Change %", ascending=False)
+    if "monthly_limit" in st.session_state:
+        limit = st.session_state.monthly_limit
+        if forecast_total > limit:
+            st.warning(f"You may exceed your monthly limit of {limit} €!")
+        else:
+            st.success(f"You're on track to stay under your limit ({limit} €)")
 
-    st.dataframe(growth.head(5))
+    st.divider()
+
+    # ---------- SAVINGS PROGRESS ----------
+    st.subheader("💰 Savings Progress")
+
+    if not savings.empty:
+        total_saved = savings["Saved"].sum()
+        total_target = savings["Target"].sum()
+        progress = total_saved / total_target if total_target > 0 else 0
+
+        col1,col2 = st.columns(2)
+        col1.metric("Total Saved", f"{total_saved:.2f} €")
+        col2.metric("Savings Target", f"{total_target:.2f} €")
+        st.progress(progress)
+    else:
+        st.info("No savings goals yet")
 
 # ---------- EXPORT ----------
 if page == "Export":
@@ -517,4 +741,3 @@ if page == "Manage Expenses":
             df.to_csv(FILE,index=False)
 
             st.success("Expense deleted")
-
