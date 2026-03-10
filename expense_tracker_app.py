@@ -69,6 +69,34 @@ try:
 except:
     subs = pd.DataFrame(columns=["Name","Amount","Category"])
 
+# ---------- APPLY SUBSCRIPTIONS ----------
+
+today = datetime.today()
+
+for i, sub in subs.iterrows():
+
+    name = sub["Name"]
+    amount = sub["Amount"]
+    category = sub["Category"]
+
+    exists = df[
+        (df["Note"] == name) &
+        (df["Date"].dt.month == today.month) &
+        (df["Date"].dt.year == today.year)
+    ]
+
+    if exists.empty:
+
+        new_row = pd.DataFrame({
+            "Date":[pd.to_datetime(f"{today.year}-{today.month}-01")],
+            "Amount":[amount],
+            "Category":[category],
+            "Note":[name]
+        })
+
+        df = pd.concat([df,new_row])
+df.to_csv(FILE,index=False)
+
 # ---------- SAVINGS ----------
 try:
     savings = pd.read_csv("savings.csv")
@@ -212,27 +240,116 @@ if page == "Subscriptions":
 
     st.title("🔁 Subscriptions")
 
-    st.dataframe(subs)
+    # ---------- ADD BUTTON ----------
+    if "add_sub" not in st.session_state:
+        st.session_state.add_sub = False
 
-    name = st.text_input("Name")
+    if st.button("➕ Add Subscription"):
+        st.session_state.add_sub = True
 
-    amount = st.number_input("Amount")
+    # ---------- ADD FORM ----------
+    if st.session_state.add_sub:
 
-    category = st.text_input("Category")
+        st.subheader("New Subscription")
 
-    if st.button("Add Subscription"):
+        col1, col2 = st.columns(2)
 
-        new = pd.DataFrame({
-        "Name":[name],
-        "Amount":[amount],
-        "Category":[category]
-        })
+        with col1:
+            name = st.text_input("Name")
+            amount = st.number_input("Monthly Amount", min_value=0.0)
 
-        subs = pd.concat([subs,new])
+        with col2:
+            category = st.text_input("Category")
 
-        subs.to_csv("subscriptions.csv",index=False)
+        col1, col2 = st.columns(2)
 
-        st.success("Subscription Added")
+        if col1.button("Save Subscription"):
+
+            new = pd.DataFrame({
+                "Name":[name],
+                "Amount":[amount],
+                "Category":[category]
+            })
+
+            subs = pd.concat([subs,new])
+
+            subs.to_csv("subscriptions.csv",index=False)
+
+            st.success("Subscription Added")
+
+            st.session_state.add_sub = False
+            st.rerun()
+
+        if col2.button("Cancel"):
+            st.session_state.add_sub = False
+            st.rerun()
+
+    st.divider()
+
+    # ---------- LIST ----------
+    st.subheader("Your Subscriptions")
+
+    if subs.empty:
+        st.info("No subscriptions yet")
+    else:
+
+        for i,row in subs.iterrows():
+
+            col1,col2,col3,col4 = st.columns([3,2,2,1])
+
+            col1.write(f"**{row['Name']}**")
+            col2.write(f"{row['Amount']} €")
+            col3.write(row["Category"])
+
+            if col4.button("Edit", key=f"edit{i}"):
+
+                st.session_state.edit_sub = i
+
+        # ---------- EDIT ----------
+        if "edit_sub" in st.session_state:
+
+            idx = st.session_state.edit_sub
+
+            sub = subs.loc[idx]
+
+            st.divider()
+            st.subheader("Edit Subscription")
+
+            col1,col2 = st.columns(2)
+
+            with col1:
+                new_name = st.text_input("Name", value=sub["Name"])
+                new_amount = st.number_input("Amount", value=float(sub["Amount"]))
+
+            with col2:
+                new_category = st.text_input("Category", value=sub["Category"])
+
+            col1,col2 = st.columns(2)
+
+            if col1.button("💾 Save Changes"):
+
+                subs.loc[idx,"Name"] = new_name
+                subs.loc[idx,"Amount"] = new_amount
+                subs.loc[idx,"Category"] = new_category
+
+                subs.to_csv("subscriptions.csv",index=False)
+
+                st.success("Subscription updated")
+
+                del st.session_state.edit_sub
+                st.rerun()
+
+            if col2.button("🗑 Delete Subscription"):
+
+                subs = subs.drop(idx)
+
+                subs.to_csv("subscriptions.csv",index=False)
+
+                st.success("Subscription deleted")
+
+                del st.session_state.edit_sub
+                st.rerun()
+
 
 # ---------- SAVINGS ----------
 if page == "Savings":
@@ -400,3 +517,4 @@ if page == "Manage Expenses":
             df.to_csv(FILE,index=False)
 
             st.success("Expense deleted")
+
