@@ -984,19 +984,19 @@ elif page=="Savings":
             add_more=st.number_input(f"Add money to {row['name']}", min_value=0.0, step=10.0, key=f"add_goal_{row['id']}")
             x1,x2=st.columns(2)
             if x1.button(f"Update {row['name']}", key=f"update_goal_{row['id']}", use_container_width=True):
-    new_saved = float(row["saved"]) + float(add_more)
-
-    supabase.table("savings").update({
-        "saved": new_saved
-    }).eq("id", int(row["id"])).eq("user_id", user_id).execute()
-
-    st.success("Savings updated.")
-    rerun()
+                new_saved = float(row["saved"]) + float(add_more)
+            
+                supabase.table("savings").update({
+                    "saved": new_saved
+                }).eq("id", int(row["id"])).eq("user_id", user_id).execute()
+            
+                st.success("Savings updated.")
+                rerun()
             if x2.button(f"Delete {row['name']}", key=f"delete_goal_{row['id']}", use_container_width=True):
-    supabase.table("savings").delete().eq("id", int(row["id"])).eq("user_id", user_id).execute()
-
-    st.success("Goal deleted.")
-    rerun()
+                supabase.table("savings").delete().eq("id", int(row["id"])).eq("user_id", user_id).execute()
+            
+                st.success("Goal deleted.")
+                rerun()
 
 elif page=="Analytics":
     month_filter=st.selectbox("Month filter", month_options, index=0, key="analytics_month_filter")
@@ -1075,6 +1075,7 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 
