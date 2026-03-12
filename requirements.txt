@@ -4,3 +4,4 @@ plotly
 matplotlib
 openpyxl
 bcrypt
+supabase
