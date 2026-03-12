@@ -961,18 +961,18 @@ elif page=="Savings":
     with c3: goal_saved=st.number_input("Already saved (€)", min_value=0.0, step=10.0)
     if st.button("Add goal", use_container_width=True):
         if st.button("Add goal", use_container_width=True):
-    if not goal_name.strip():
-        st.error("Goal name cannot be empty.")
-    else:
-        supabase.table("savings").insert({
-            "user_id": user_id,
-            "name": goal_name.strip(),
-            "target": float(goal_target),
-            "saved": float(goal_saved),
-        }).execute()
-
-        st.success("Savings goal added.")
-        rerun()
+            if not goal_name.strip():
+                st.error("Goal name cannot be empty.")
+            else:
+                supabase.table("savings").insert({
+                    "user_id": user_id,
+                    "name": goal_name.strip(),
+                    "target": float(goal_target),
+                    "saved": float(goal_saved),
+                }).execute()
+        
+                st.success("Savings goal added.")
+                rerun()
     if savings_df.empty: empty_state("No savings goals yet.")
     else:
         for _,row in savings_df.iterrows():
@@ -1075,6 +1075,7 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 
