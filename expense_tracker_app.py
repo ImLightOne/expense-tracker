@@ -11,7 +11,16 @@ import pandas as pd
 import requests
 import streamlit as st
 
-DB_PATH = "expense_tracker_multi.db"
+from pathlib import Path
+import shutil
+from datetime import datetime
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+DB_PATH = str(DATA_DIR / "expense_tracker_multi.db")
+st.sidebar.caption(f"DB: {DB_PATH}")
 DEFAULT_CATEGORIES = ["Food","Transport","Rent","Entertainment","Shopping","Health","Sports","Bills","Cafe","Education","Travel","Other"]
 SUPPORTED_CURRENCIES = ["EUR","USD","UAH"]
 CATEGORY_COLORS = {
@@ -941,3 +950,4 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
