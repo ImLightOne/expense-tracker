@@ -1,9 +1,8 @@
 
 import io
-import sqlite3
 from datetime import date
 from calendar import monthrange
-from contextlib import contextmanager
+from supabase import create_client, Client
 
 import bcrypt
 import matplotlib.pyplot as plt
@@ -19,8 +18,21 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-DB_PATH = str(DATA_DIR / "expense_tracker_multi.db")
-st.sidebar.caption(f"DB: {DB_PATH}")
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def rerun():
+    try:
+        st.rerun()
+    except Exception:
+        st.experimental_rerun()
+
+
+def init_db():
+    # Supabase uses pre-created tables, so nothing to initialize here.
+    return
 DEFAULT_CATEGORIES = ["Food","Transport","Rent","Entertainment","Shopping","Health","Sports","Bills","Cafe","Education","Travel","Other"]
 SUPPORTED_CURRENCIES = ["EUR","USD","UAH"]
 CATEGORY_COLORS = {
@@ -460,30 +472,48 @@ init_db()
 
 def hash_password(password): return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
 def check_password(password, password_hash): return bcrypt.checkpw(password.encode("utf-8"), password_hash)
-def get_user(username):
-    with db() as conn:
-        return conn.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
+def get_user(username: str):
+    res = (
+        supabase.table("users")
+        .select("*")
+        .eq("username", username.strip())
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+def register_user(username: str, password: str):
+    username = username.strip()
 
-def register_user(username, password):
-    username=username.strip()
-    if len(username)<3: return False,"Username must have at least 3 characters."
-    if len(password)<6: return False,"Password must have at least 6 characters."
-    try:
-        with db() as conn:
-            conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hash_password(password)))
-        return True,"Account created successfully."
-    except sqlite3.IntegrityError:
-        return False,"This username already exists."
-    except sqlite3.OperationalError as e:
-        return False,f"Database error: {e}"
+    if len(username) < 3:
+        return False, "Username must have at least 3 characters."
+    if len(password) < 6:
+        return False, "Password must have at least 6 characters."
 
+    existing = (
+        supabase.table("users")
+        .select("id")
+        .eq("username", username)
+        .limit(1)
+        .execute()
+    )
+
+    if existing.data:
+        return False, "This username already exists."
+
+    supabase.table("users").insert({
+        "username": username,
+        "password_hash": hash_password(password).decode("utf-8")
+    }).execute()
+
+    return True, "Account created successfully."
 def require_login():
     user_id=st.session_state.get("user_id")
     if not user_id:
         st.info("Please log in first.")
         st.stop()
     return int(user_id)
-
+def check_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 @st.cache_data(ttl=1800)
 def get_rates_map(base="EUR"):
     base=base.upper()
@@ -526,26 +556,44 @@ def convert_from_eur(amount_eur,out_currency):
 
 def format_money(value,currency="EUR"): return f"{value:,.2f} {currency}".replace(",", " ")
 
-def load_expenses(user_id):
-    with db() as conn:
-        df=pd.read_sql_query("SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC, id DESC", conn, params=(user_id,))
-    if df.empty: return df
-    df["date"]=pd.to_datetime(df["date"], errors="coerce")
-    df=df.dropna(subset=["date"]).copy()
-    df["amount"]=pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
-    df["subscription"]=pd.to_numeric(df["subscription"], errors="coerce").fillna(0).astype(int)
-    df["note"]=df["note"].fillna("")
-    df["currency"]=df["currency"].fillna("EUR")
-    return df
+def load_expenses(user_id: int) -> pd.DataFrame:
+    res = (
+        supabase.table("expenses")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("date", desc=True)
+        .execute()
+    )
 
-def load_savings(user_id):
-    with db() as conn:
-        df=pd.read_sql_query("SELECT * FROM savings WHERE user_id = ? ORDER BY id DESC", conn, params=(user_id,))
-    if df.empty: return df
-    df["target"]=pd.to_numeric(df["target"], errors="coerce").fillna(0.0)
-    df["saved"]=pd.to_numeric(df["saved"], errors="coerce").fillna(0.0)
-    return df
+    df = pd.DataFrame(res.data)
 
+    if df.empty:
+        return df
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).copy()
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
+    df["subscription"] = pd.to_numeric(df["subscription"], errors="coerce").fillna(0).astype(int)
+    df["note"] = df["note"].fillna("")
+    df["currency"] = df["currency"].fillna("EUR")
+    return df.sort_values(["date", "id"], ascending=[False, False])
+def load_savings(user_id: int) -> pd.DataFrame:
+    res = (
+        supabase.table("savings")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("id", desc=True)
+        .execute()
+    )
+
+    df = pd.DataFrame(res.data)
+
+    if df.empty:
+        return df
+
+    df["target"] = pd.to_numeric(df["target"], errors="coerce").fillna(0.0)
+    df["saved"] = pd.to_numeric(df["saved"], errors="coerce").fillna(0.0)
+    return df
 def make_display_df(df, output_currency):
     if df.empty: return df
     out=df.copy()
@@ -554,38 +602,89 @@ def make_display_df(df, output_currency):
     out["month"]=out["date"].dt.to_period("M").astype(str)
     return out
 
-def add_expense(user_id, expense_date, amount, category, currency, note="", subscription=0):
-    amount_eur=convert_to_eur(amount,currency)
-    with db() as conn:
-        conn.execute("INSERT INTO expenses (user_id, date, amount, category, currency, subscription, note) VALUES (?, ?, ?, ?, ?, ?, ?)", (user_id, expense_date.isoformat(), amount_eur, category, currency, int(subscription), note.strip()))
+def add_expense(user_id: int, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0):
+    amount_eur = convert_to_eur(amount, currency)
 
-def get_monthly_limit(user_id):
-    with db() as conn:
-        row=conn.execute("SELECT monthly_limit FROM budgets WHERE user_id = ?", (user_id,)).fetchone()
-    return float(row["monthly_limit"]) if row else None
+    supabase.table("expenses").insert({
+        "user_id": user_id,
+        "date": expense_date.isoformat(),
+        "amount": amount_eur,
+        "category": category,
+        "currency": currency,
+        "subscription": int(subscription),
+        "note": note.strip(),
+    }).execute()
+def get_monthly_limit(user_id: int):
+    res = (
+        supabase.table("budgets")
+        .select("monthly_limit")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    return float(res.data[0]["monthly_limit"]) if res.data else None
+def set_monthly_limit(user_id: int, amount_eur: float):
+    existing = (
+        supabase.table("budgets")
+        .select("user_id")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
 
-def set_monthly_limit(user_id, amount_eur):
-    with db() as conn:
-        conn.execute("INSERT INTO budgets (user_id, monthly_limit) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET monthly_limit = excluded.monthly_limit", (user_id, float(amount_eur)))
+    payload = {"user_id": user_id, "monthly_limit": float(amount_eur)}
 
-def upsert_monthly_subscriptions(user_id):
-    df=load_expenses(user_id)
-    if df.empty: return 0
-    today=date.today()
-    month_start=date(today.year,today.month,1).isoformat()
-    current_month_key=today.strftime("%Y-%m")
-    subs=df[df["subscription"]==1].copy()
-    if subs.empty: return 0
-    created=0
-    with db() as conn:
-        for _,row in subs.iterrows():
-            if pd.to_datetime(row["date"]).strftime("%Y-%m")==current_month_key: continue
-            exists=conn.execute("""SELECT 1 FROM expenses WHERE user_id = ? AND subscription = 1 AND category = ? AND note = ? AND amount = ? AND substr(date, 1, 7) = ? LIMIT 1""",(user_id,str(row["category"]),str(row["note"]),float(row["amount"]),current_month_key)).fetchone()
-            if not exists:
-                conn.execute("INSERT INTO expenses (user_id, date, amount, category, currency, subscription, note) VALUES (?, ?, ?, ?, ?, 1, ?)",(user_id,month_start,float(row["amount"]),str(row["category"]),str(row["currency"] or "EUR"),str(row["note"])))
-                created+=1
+    if existing.data:
+        supabase.table("budgets").update(payload).eq("user_id", user_id).execute()
+    else:
+        supabase.table("budgets").insert(payload).execute()
+def upsert_monthly_subscriptions(user_id: int) -> int:
+    df = load_expenses(user_id)
+    if df.empty:
+        return 0
+
+    today = date.today()
+    month_start = date(today.year, today.month, 1).isoformat()
+    current_month_key = today.strftime("%Y-%m")
+
+    subs = df[df["subscription"] == 1].copy()
+    if subs.empty:
+        return 0
+
+    created = 0
+
+    for _, row in subs.iterrows():
+        row_month_key = pd.to_datetime(row["date"]).strftime("%Y-%m")
+        if row_month_key == current_month_key:
+            continue
+
+        existing = (
+            supabase.table("expenses")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("subscription", 1)
+            .eq("category", str(row["category"]))
+            .eq("note", str(row["note"]))
+            .eq("amount", float(row["amount"]))
+            .gte("date", f"{current_month_key}-01")
+            .lt("date", f"{current_month_key}-32")
+            .limit(1)
+            .execute()
+        )
+
+        if not existing.data:
+            supabase.table("expenses").insert({
+                "user_id": user_id,
+                "date": month_start,
+                "amount": float(row["amount"]),
+                "category": str(row["category"]),
+                "currency": str(row["currency"] or "EUR"),
+                "subscription": 1,
+                "note": str(row["note"]),
+            }).execute()
+            created += 1
+
     return created
-
 def section_start(title, subtitle=None):
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
@@ -734,7 +833,9 @@ if page=="Dashboard":
         section_start("Monthly budget","Use the current month to track whether spending is on target.")
         new_limit_display=st.number_input(f"Monthly limit ({display_currency})", min_value=0.0, value=float(current_limit_display), step=10.0)
         if st.button("Save monthly limit", use_container_width=True):
-            set_monthly_limit(user_id, convert_to_eur(new_limit_display, display_currency)); st.success("Monthly limit saved."); rerun()
+    set_monthly_limit(user_id, convert_to_eur(new_limit_display, display_currency))
+    st.success("Monthly limit saved.")
+    rerun()
         if current_limit_eur is not None:
             limit_display=convert_from_eur(current_limit_eur, display_currency)
             progress=min(month_spent/limit_display,1.0) if limit_display>0 else 0.0
@@ -824,13 +925,22 @@ elif page=="Manage Expenses":
                 edit_currency=st.selectbox("Original currency label", SUPPORTED_CURRENCIES, index=SUPPORTED_CURRENCIES.index(current_currency))
             b1,b2=st.columns(2)
             if b1.button("Save changes", use_container_width=True):
-                with db() as conn:
-                    conn.execute("UPDATE expenses SET amount = ?, category = ?, date = ?, note = ?, currency = ?, subscription = ? WHERE id = ? AND user_id = ?", (float(edit_amount_eur), edit_category, edit_date.isoformat(), edit_note.strip(), edit_currency, 1 if edit_subscription else 0, int(expense["id"]), user_id))
-                st.success("Expense updated."); rerun()
+    supabase.table("expenses").update({
+        "amount": float(edit_amount_eur),
+        "category": edit_category,
+        "date": edit_date.isoformat(),
+        "note": edit_note.strip(),
+        "currency": edit_currency,
+        "subscription": 1 if edit_subscription else 0,
+    }).eq("id", int(expense["id"])).eq("user_id", user_id).execute()
+
+    st.success("Expense updated.")
+    rerun()
             if b2.button("Delete expense", use_container_width=True):
-                with db() as conn: conn.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (int(expense["id"]), user_id))
-                st.success("Expense deleted."); rerun()
-    section_end()
+    supabase.table("expenses").delete().eq("id", int(expense["id"])).eq("user_id", user_id).execute()
+
+    st.success("Expense deleted.")
+    rerun()
 
 elif page=="Subscriptions":
     month_filter=st.selectbox("Month filter", month_options, index=0, key="subs_month_filter")
@@ -850,10 +960,19 @@ elif page=="Savings":
     with c2: goal_target=st.number_input("Target (€)", min_value=0.0, step=10.0)
     with c3: goal_saved=st.number_input("Already saved (€)", min_value=0.0, step=10.0)
     if st.button("Add goal", use_container_width=True):
-        if not goal_name.strip(): st.error("Goal name cannot be empty.")
-        else:
-            with db() as conn: conn.execute("INSERT INTO savings (user_id, name, target, saved) VALUES (?, ?, ?, ?)", (user_id, goal_name.strip(), float(goal_target), float(goal_saved)))
-            st.success("Savings goal added."); rerun()
+        if st.button("Add goal", use_container_width=True):
+    if not goal_name.strip():
+        st.error("Goal name cannot be empty.")
+    else:
+        supabase.table("savings").insert({
+            "user_id": user_id,
+            "name": goal_name.strip(),
+            "target": float(goal_target),
+            "saved": float(goal_saved),
+        }).execute()
+
+        st.success("Savings goal added.")
+        rerun()
     if savings_df.empty: empty_state("No savings goals yet.")
     else:
         for _,row in savings_df.iterrows():
@@ -865,13 +984,19 @@ elif page=="Savings":
             add_more=st.number_input(f"Add money to {row['name']}", min_value=0.0, step=10.0, key=f"add_goal_{row['id']}")
             x1,x2=st.columns(2)
             if x1.button(f"Update {row['name']}", key=f"update_goal_{row['id']}", use_container_width=True):
-                with db() as conn: conn.execute("UPDATE savings SET saved = saved + ? WHERE id = ? AND user_id = ?", (float(add_more), int(row["id"]), user_id))
-                st.success("Savings updated."); rerun()
+    new_saved = float(row["saved"]) + float(add_more)
+
+    supabase.table("savings").update({
+        "saved": new_saved
+    }).eq("id", int(row["id"])).eq("user_id", user_id).execute()
+
+    st.success("Savings updated.")
+    rerun()
             if x2.button(f"Delete {row['name']}", key=f"delete_goal_{row['id']}", use_container_width=True):
-                with db() as conn: conn.execute("DELETE FROM savings WHERE id = ? AND user_id = ?", (int(row["id"]), user_id))
-                st.success("Goal deleted."); rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-    section_end()
+    supabase.table("savings").delete().eq("id", int(row["id"])).eq("user_id", user_id).execute()
+
+    st.success("Goal deleted.")
+    rerun()
 
 elif page=="Analytics":
     month_filter=st.selectbox("Month filter", month_options, index=0, key="analytics_month_filter")
@@ -950,4 +1075,5 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
 
