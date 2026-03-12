@@ -925,22 +925,22 @@ elif page=="Manage Expenses":
                 edit_currency=st.selectbox("Original currency label", SUPPORTED_CURRENCIES, index=SUPPORTED_CURRENCIES.index(current_currency))
             b1,b2=st.columns(2)
             if b1.button("Save changes", use_container_width=True):
-    supabase.table("expenses").update({
-        "amount": float(edit_amount_eur),
-        "category": edit_category,
-        "date": edit_date.isoformat(),
-        "note": edit_note.strip(),
-        "currency": edit_currency,
-        "subscription": 1 if edit_subscription else 0,
-    }).eq("id", int(expense["id"])).eq("user_id", user_id).execute()
-
-    st.success("Expense updated.")
-    rerun()
+                supabase.table("expenses").update({
+                    "amount": float(edit_amount_eur),
+                    "category": edit_category,
+                    "date": edit_date.isoformat(),
+                    "note": edit_note.strip(),
+                    "currency": edit_currency,
+                    "subscription": 1 if edit_subscription else 0,
+                }).eq("id", int(expense["id"])).eq("user_id", user_id).execute()
+            
+                st.success("Expense updated.")
+                rerun()
             if b2.button("Delete expense", use_container_width=True):
-    supabase.table("expenses").delete().eq("id", int(expense["id"])).eq("user_id", user_id).execute()
-
-    st.success("Expense deleted.")
-    rerun()
+                supabase.table("expenses").delete().eq("id", int(expense["id"])).eq("user_id", user_id).execute()
+            
+                st.success("Expense deleted.")
+                rerun()
 
 elif page=="Subscriptions":
     month_filter=st.selectbox("Month filter", month_options, index=0, key="subs_month_filter")
@@ -1075,6 +1075,7 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 
