@@ -833,9 +833,9 @@ if page=="Dashboard":
         section_start("Monthly budget","Use the current month to track whether spending is on target.")
         new_limit_display=st.number_input(f"Monthly limit ({display_currency})", min_value=0.0, value=float(current_limit_display), step=10.0)
         if st.button("Save monthly limit", use_container_width=True):
-    set_monthly_limit(user_id, convert_to_eur(new_limit_display, display_currency))
-    st.success("Monthly limit saved.")
-    rerun()
+            set_monthly_limit(user_id, convert_to_eur(new_limit_display, display_currency))
+            st.success("Monthly limit saved.")
+            rerun()
         if current_limit_eur is not None:
             limit_display=convert_from_eur(current_limit_eur, display_currency)
             progress=min(month_spent/limit_display,1.0) if limit_display>0 else 0.0
@@ -1075,5 +1075,6 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 
