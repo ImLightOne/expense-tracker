@@ -3,7 +3,7 @@ import io
 from datetime import date
 from calendar import monthrange
 from supabase import create_client, Client
-
+from contextlib import contextmanager
 import bcrypt
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -1075,6 +1075,7 @@ elif page=="Export":
     section_end()
 
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 
