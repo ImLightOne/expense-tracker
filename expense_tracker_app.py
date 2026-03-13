@@ -3,7 +3,6 @@ import io
 from datetime import date
 from calendar import monthrange
 from supabase import create_client, Client
-from contextlib import contextmanager
 import bcrypt
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -425,53 +424,12 @@ div[data-testid="stAlertContent"] *{
 
 </style>
 """, unsafe_allow_html=True)
-def get_conn():
-    conn=sqlite3.connect(DB_PATH,timeout=30,check_same_thread=False)
-    conn.row_factory=sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA busy_timeout = 30000")
-    return conn
 
-@contextmanager
-def db():
-    conn=get_conn()
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
-
-def rerun():
-    try: st.rerun()
-    except Exception: st.experimental_rerun()
-
-def table_has_column(conn, table, column):
-    rows=conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return any(r["name"]==column for r in rows)
-
-def safe_add_column(conn, table, column, definition, backfill_current_timestamp=False):
-    if not table_has_column(conn, table, column):
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-        if backfill_current_timestamp:
-            conn.execute(f"UPDATE {table} SET {column} = CURRENT_TIMESTAMP WHERE {column} IS NULL")
-
-def init_db():
-    with db() as conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,password_hash BLOB NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,date TEXT NOT NULL,amount REAL NOT NULL,category TEXT NOT NULL,currency TEXT DEFAULT 'EUR',subscription INTEGER DEFAULT 0,note TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id))""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS savings(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,name TEXT NOT NULL,target REAL NOT NULL,saved REAL NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id))""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS budgets(user_id INTEGER PRIMARY KEY,monthly_limit REAL NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id))""")
-        safe_add_column(conn,"users","created_at","TEXT",True)
-        safe_add_column(conn,"expenses","currency","TEXT DEFAULT 'EUR'")
-        safe_add_column(conn,"expenses","subscription","INTEGER DEFAULT 0")
-        safe_add_column(conn,"expenses","note","TEXT DEFAULT ''")
-        safe_add_column(conn,"expenses","created_at","TEXT",True)
-        safe_add_column(conn,"savings","created_at","TEXT",True)
+# Supabase uses pre-created tables. No local SQLite init needed.
 init_db()
 
+
 def hash_password(password): return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-def check_password(password, password_hash): return bcrypt.checkpw(password.encode("utf-8"), password_hash)
 def get_user(username: str):
     res = (
         supabase.table("users")
@@ -941,6 +899,7 @@ elif page=="Manage Expenses":
             
                 st.success("Expense deleted.")
                 rerun()
+    section_end()
 
 elif page=="Subscriptions":
     month_filter=st.selectbox("Month filter", month_options, index=0, key="subs_month_filter")
@@ -960,19 +919,18 @@ elif page=="Savings":
     with c2: goal_target=st.number_input("Target (€)", min_value=0.0, step=10.0)
     with c3: goal_saved=st.number_input("Already saved (€)", min_value=0.0, step=10.0)
     if st.button("Add goal", use_container_width=True):
-        if st.button("Add goal", use_container_width=True):
-            if not goal_name.strip():
-                st.error("Goal name cannot be empty.")
-            else:
-                supabase.table("savings").insert({
-                    "user_id": user_id,
-                    "name": goal_name.strip(),
-                    "target": float(goal_target),
-                    "saved": float(goal_saved),
-                }).execute()
-        
-                st.success("Savings goal added.")
-                rerun()
+        if not goal_name.strip():
+            st.error("Goal name cannot be empty.")
+        else:
+            supabase.table("savings").insert({
+                "user_id": user_id,
+                "name": goal_name.strip(),
+                "target": float(goal_target),
+                "saved": float(goal_saved),
+            }).execute()
+
+            st.success("Savings goal added.")
+            rerun()
     if savings_df.empty: empty_state("No savings goals yet.")
     else:
         for _,row in savings_df.iterrows():
@@ -997,6 +955,8 @@ elif page=="Savings":
             
                 st.success("Goal deleted.")
                 rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+    section_end()
 
 elif page=="Analytics":
     month_filter=st.selectbox("Month filter", month_options, index=0, key="analytics_month_filter")
