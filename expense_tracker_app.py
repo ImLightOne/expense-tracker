@@ -740,6 +740,167 @@ def csv_template() -> bytes:
     return template.to_csv(index=False).encode("utf-8")
 
 
+TRANSLATIONS = {
+    "en": {
+        "app_title": "💸 Expense Tracker Pro+",
+        "sidebar_title": "## 💸 Expense Tracker Pro+",
+        "sidebar_caption": "Improved version with faster entry, deeper analytics, bulk import, duplicate detection, and smarter subscription insights.",
+        "language": "Language",
+        "logged_in_as": "Logged in as {username}",
+        "log_out": "Log out",
+        "mode": "Mode",
+        "login": "Login",
+        "register": "Register",
+        "username": "Username",
+        "password": "Password",
+        "create_account": "Create account",
+        "invalid_credentials": "Invalid username or password.",
+        "welcome_text": "Track spending, subscriptions, savings, imports, anomalies, and trends in one place.",
+        "fast_capture": "Fast capture",
+        "quick_add": "Quick Add",
+        "quick_add_desc": "Paste natural text like: 2026-03-17 8.5 EUR coffee",
+        "smart_insights": "Smarter insights",
+        "analytics_plus": "Analytics+",
+        "analytics_plus_desc": "Forecasts, duplicates, anomalies, merchants, streaks",
+        "safe_data": "Safer data",
+        "bulk_tools": "Bulk tools",
+        "bulk_tools_desc": "CSV import, template export, backup-ready downloads",
+        "display_currency": "Display currency",
+        "fx_caption": "Live FX rates via Frankfurter + NBU",
+        "global_filters": "Global filters",
+        "quick_range": "Quick range",
+        "from": "From",
+        "to": "To",
+        "categories": "Categories",
+        "search_text": "Search text",
+        "search_placeholder": "merchant, note, category",
+        "subscriptions_only": "Subscriptions only",
+        "navigation": "Navigation",
+        "dashboard": "Dashboard",
+        "add_expense": "Add Expense",
+        "manage_expenses": "Manage Expenses",
+        "subscriptions": "Subscriptions",
+        "savings": "Savings",
+        "analytics": "Analytics",
+        "import_export": "Import / Export",
+        "filtered_transactions": "filtered transactions",
+        "top_category": "Top category",
+        "largest_expense": "Largest expense",
+        "savings_rate": "Savings rate",
+        "health_score": "Health score",
+        "budget": "Budget",
+        "saving": "Saving",
+        "consistency": "Consistency",
+    },
+    "uk": {
+        "app_title": "💸 Трекер витрат Pro+",
+        "sidebar_title": "## 💸 Трекер витрат Pro+",
+        "sidebar_caption": "Покращена версія з швидким додаванням, глибшою аналітикою, імпортом, пошуком дублікатів і розумнішими підписками.",
+        "language": "Мова",
+        "logged_in_as": "Ви увійшли як {username}",
+        "log_out": "Вийти",
+        "mode": "Режим",
+        "login": "Увійти",
+        "register": "Реєстрація",
+        "username": "Ім'я користувача",
+        "password": "Пароль",
+        "create_account": "Створити акаунт",
+        "invalid_credentials": "Неправильне ім'я користувача або пароль.",
+        "welcome_text": "Відстежуй витрати, підписки, заощадження, імпорт, аномалії та тренди в одному місці.",
+        "fast_capture": "Швидке внесення",
+        "quick_add": "Швидке додавання",
+        "quick_add_desc": "Встав текст у стилі: 2026-03-17 8.5 EUR coffee",
+        "smart_insights": "Розумні інсайти",
+        "analytics_plus": "Аналітика+",
+        "analytics_plus_desc": "Прогнози, дублікати, аномалії, продавці, streaks",
+        "safe_data": "Безпечні дані",
+        "bulk_tools": "Масові інструменти",
+        "bulk_tools_desc": "CSV імпорт, шаблон експорту, резервні копії",
+        "display_currency": "Валюта відображення",
+        "fx_caption": "Актуальні курси через Frankfurter + NBU",
+        "global_filters": "Глобальні фільтри",
+        "quick_range": "Швидкий період",
+        "from": "Від",
+        "to": "До",
+        "categories": "Категорії",
+        "search_text": "Пошук",
+        "search_placeholder": "продавець, нотатка, категорія",
+        "subscriptions_only": "Лише підписки",
+        "navigation": "Навігація",
+        "dashboard": "Дашборд",
+        "add_expense": "Додати витрату",
+        "manage_expenses": "Керування витратами",
+        "subscriptions": "Підписки",
+        "savings": "Заощадження",
+        "analytics": "Аналітика",
+        "import_export": "Імпорт / Експорт",
+        "filtered_transactions": "відфільтрованих транзакцій",
+        "top_category": "Топ категорія",
+        "largest_expense": "Найбільша витрата",
+        "savings_rate": "Норма заощаджень",
+        "health_score": "Фінансовий рейтинг",
+        "budget": "Бюджет",
+        "saving": "Заощадження",
+        "consistency": "Стабільність",
+    },
+    "de": {
+        "app_title": "💸 Ausgaben-Tracker Pro+",
+        "sidebar_title": "## 💸 Ausgaben-Tracker Pro+",
+        "sidebar_caption": "Verbesserte Version mit schneller Erfassung, tieferen Analysen, Import, Duplikat-Erkennung und intelligenteren Abos.",
+        "language": "Sprache",
+        "logged_in_as": "Angemeldet als {username}",
+        "log_out": "Abmelden",
+        "mode": "Modus",
+        "login": "Anmelden",
+        "register": "Registrieren",
+        "username": "Benutzername",
+        "password": "Passwort",
+        "create_account": "Konto erstellen",
+        "invalid_credentials": "Ungültiger Benutzername oder Passwort.",
+        "welcome_text": "Verfolge Ausgaben, Abos, Sparziele, Importe, Anomalien und Trends an einem Ort.",
+        "fast_capture": "Schnelle Erfassung",
+        "quick_add": "Schnell hinzufügen",
+        "quick_add_desc": "Natürlichen Text einfügen wie: 2026-03-17 8.5 EUR coffee",
+        "smart_insights": "Smarte Insights",
+        "analytics_plus": "Analytics+",
+        "analytics_plus_desc": "Prognosen, Duplikate, Anomalien, Händler, Streaks",
+        "safe_data": "Sichere Daten",
+        "bulk_tools": "Bulk-Tools",
+        "bulk_tools_desc": "CSV-Import, Vorlagenexport, Backup-Downloads",
+        "display_currency": "Anzeigewährung",
+        "fx_caption": "Live-Wechselkurse via Frankfurter + NBU",
+        "global_filters": "Globale Filter",
+        "quick_range": "Schnellbereich",
+        "from": "Von",
+        "to": "Bis",
+        "categories": "Kategorien",
+        "search_text": "Suche",
+        "search_placeholder": "Händler, Notiz, Kategorie",
+        "subscriptions_only": "Nur Abos",
+        "navigation": "Navigation",
+        "dashboard": "Dashboard",
+        "add_expense": "Ausgabe hinzufügen",
+        "manage_expenses": "Ausgaben verwalten",
+        "subscriptions": "Abos",
+        "savings": "Sparen",
+        "analytics": "Analysen",
+        "import_export": "Import / Export",
+        "filtered_transactions": "gefilterte Transaktionen",
+        "top_category": "Top-Kategorie",
+        "largest_expense": "Größte Ausgabe",
+        "savings_rate": "Sparquote",
+        "health_score": "Finanz-Score",
+        "budget": "Budget",
+        "saving": "Sparen",
+        "consistency": "Konstanz",
+    },
+}
+
+def t(key: str, **kwargs) -> str:
+    lang = st.session_state.get("lang", "en")
+    template = TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
+    return template.format(**kwargs) if kwargs else template
+
 # =========================================================
 # SIDEBAR / SESSION
 # =========================================================
@@ -749,46 +910,48 @@ for key, default in {
     "username": None,
     "smart_note": "",
     "smart_preview": None,
+    "lang": "en",
 }.items():
     st.session_state.setdefault(key, default)
 
-st.sidebar.markdown("## 💸 Expense Tracker Pro+")
-st.sidebar.caption("Improved version with faster entry, deeper analytics, bulk import, duplicate detection, and smarter subscription insights.")
+st.sidebar.markdown(t("sidebar_title"))
+st.sidebar.caption(t("sidebar_caption"))
+st.session_state.lang = st.sidebar.selectbox(t("language"), ["en", "uk", "de"], index=["en","uk","de"].index(st.session_state.get("lang","en")), format_func=lambda x: {"en":"English","uk":"Українська","de":"Deutsch"}[x])
 
 if st.session_state.user_id:
-    st.sidebar.success(f"Logged in as {st.session_state.username}")
-    if st.sidebar.button("Log out", use_container_width=True):
+    st.sidebar.success(t("logged_in_as", username=st.session_state.username))
+    if st.sidebar.button(t("log_out"), use_container_width=True):
         st.session_state.user_id = None
         st.session_state.username = None
         rerun()
 else:
-    mode = st.sidebar.radio("Mode", ["Login", "Register"])
-    username = st.sidebar.text_input("Username")
-    password = st.sidebar.text_input("Password", type="password")
-    if mode == "Login":
-        if st.sidebar.button("Login", use_container_width=True):
+    mode = st.sidebar.radio(t("mode"), [t("login"), t("register")])
+    username = st.sidebar.text_input(t("username"))
+    password = st.sidebar.text_input(t("password"), type="password")
+    if mode == t("login"):
+        if st.sidebar.button(t("login"), use_container_width=True):
             user = get_user(username)
             if user and check_password(password, user["password_hash"]):
                 st.session_state.user_id = int(user["id"])
                 st.session_state.username = user["username"]
                 rerun()
             else:
-                st.sidebar.error("Invalid username or password.")
+                st.sidebar.error(t("invalid_credentials"))
     else:
-        if st.sidebar.button("Create account", use_container_width=True):
+        if st.sidebar.button(t("create_account"), use_container_width=True):
             ok, message = register_user(username, password)
             (st.sidebar.success if ok else st.sidebar.error)(message)
 
 if not st.session_state.user_id:
-    st.title("💸 Expense Tracker Pro+")
-    st.write("Track spending, subscriptions, savings, imports, anomalies, and trends in one place.")
+    st.title(t("app_title"))
+    st.write(t("welcome_text"))
     a, b, c = st.columns(3)
     with a:
-        metric_card("Fast capture", "Quick Add", "Paste natural text like: 2026-03-17 8.5 EUR coffee")
+        metric_card(t("fast_capture"), t("quick_add"), t("quick_add_desc"))
     with b:
-        metric_card("Smarter insights", "Analytics+", "Forecasts, duplicates, anomalies, merchants, streaks")
+        metric_card(t("smart_insights"), t("analytics_plus"), t("analytics_plus_desc"))
     with c:
-        metric_card("Safer data", "Bulk tools", "CSV import, template export, backup-ready downloads")
+        metric_card(t("safe_data"), t("bulk_tools"), t("bulk_tools_desc"))
     st.stop()
 
 user_id = require_login()
@@ -797,8 +960,8 @@ if created_subs:
     st.toast(f"Added {created_subs} recurring subscription(s) for this month.")
 
 st.sidebar.divider()
-display_currency = st.sidebar.selectbox("Display currency", SUPPORTED_CURRENCIES, index=0)
-st.sidebar.caption("Live FX rates via Frankfurter + NBU")
+display_currency = st.sidebar.selectbox(t("display_currency"), SUPPORTED_CURRENCIES, index=0)
+st.sidebar.caption(t("fx_caption"))
 
 base_df = load_expenses(user_id)
 base_display_df = enrich_expenses(base_df, display_currency)
@@ -810,43 +973,43 @@ default_start = max(min_date, date.today().replace(day=1))
 default_end = max_date
 
 with st.sidebar:
-    st.markdown("### Global filters")
+    st.markdown(f"### {t("global_filters")}")
     presets = get_date_range_presets(min_date, max_date)
-    preset_name = st.selectbox("Quick range", list(presets.keys()), index=0)
+    preset_name = st.selectbox(t("quick_range"), list(presets.keys()), index=0)
     preset_start, preset_end = presets[preset_name]
-    start_date = st.date_input("From", value=preset_start, min_value=min_date, max_value=max_date if max_date >= min_date else None)
-    end_date = st.date_input("To", value=preset_end, min_value=min_date, max_value=max_date if max_date >= min_date else None)
+    start_date = st.date_input(t("from"), value=preset_start, min_value=min_date, max_value=max_date if max_date >= min_date else None)
+    end_date = st.date_input(t("to"), value=preset_end, min_value=min_date, max_value=max_date if max_date >= min_date else None)
     if start_date > end_date:
         start_date, end_date = end_date, start_date
-    category_filter = st.multiselect("Categories", options=DEFAULT_CATEGORIES)
-    search_query = st.text_input("Search text", placeholder="merchant, note, category")
-    subs_only_global = st.checkbox("Subscriptions only")
+    category_filter = st.multiselect(t("categories"), options=DEFAULT_CATEGORIES)
+    search_query = st.text_input(t("search_text"), placeholder=t("search_placeholder"))
+    subs_only_global = st.checkbox(t("subscriptions_only"))
 
 filtered_df = apply_filters(base_display_df, start_date, end_date, category_filter, search_query, subs_only_global)
 expense_df = filtered_df[filtered_df["type"] == "expense"].copy()
 income_df = filtered_df[filtered_df["type"] == "income"].copy()
 
 PAGES = [
-    "Dashboard",
-    "Quick Add",
-    "Add Expense",
-    "Manage Expenses",
-    "Subscriptions",
-    "Savings",
-    "Analytics",
-    "Import / Export",
+    t("dashboard"),
+    t("quick_add"),
+    t("add_expense"),
+    t("manage_expenses"),
+    t("subscriptions"),
+    t("savings"),
+    t("analytics"),
+    t("import_export"),
 ]
-page = st.sidebar.radio("Navigation", PAGES)
+page = st.sidebar.radio(t("navigation"), PAGES)
 
-st.title("💸 Expense Tracker Pro+")
-st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} filtered transactions")
+st.title(t("app_title"))
+st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} {t("filtered_transactions")}")
 
 
 # =========================================================
 # DASHBOARD
 # =========================================================
 
-if page == "Dashboard":
+if page == t("dashboard"):
     total_spent = safe_float(expense_df["display_abs_amount"].sum())
     total_income = safe_float(income_df["display_abs_amount"].sum())
     net_balance = total_income - total_spent
@@ -862,6 +1025,7 @@ if page == "Dashboard":
     budget_left = max(safe_float(current_month_limit_display) - this_month_spent, 0.0) if current_month_limit_display is not None else None
     forecast_value = month_forecast(base_display_df)
     no_spend_streak, best_no_spend_streak = streak_metrics(base_display_df)
+    health_score, health_label, health_breakdown = calculate_financial_health(expense_df, savings_df, current_month_limit_display)
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -883,13 +1047,14 @@ if page == "Dashboard":
     savings_total = safe_float(savings_df["saved"].sum())
     savings_rate = (savings_total / (savings_total + total_spent) * 100) if (savings_total + total_spent) > 0 else 0.0
     with m1:
-        st.metric("Top category", top_cat_name)
+        st.metric(t("top_category"), top_cat_name)
     with m2:
-        st.metric("Largest expense", format_money(biggest_tx, display_currency))
+        st.metric(t("largest_expense"), format_money(biggest_tx, display_currency))
     with m3:
-        st.metric("Savings rate", f"{savings_rate:.1f}%")
+        st.metric(t("savings_rate"), f"{savings_rate:.1f}%")
     with m4:
-        st.metric("Health score", f"{health_score}/100", help=f"{health_label} · Budget {health_breakdown['budget']}, Saving {health_breakdown['saving']}, Consistency {health_breakdown['consistency']}")
+        hb = health_breakdown if isinstance(health_breakdown, dict) else {}
+        st.metric(t("health_score"), f"{health_score}/100", help=f"{health_label} · {t('budget')} {hb.get('budget', '—')}, {t('saving')} {hb.get('saving', '—')}, {t('consistency')} {hb.get('consistency', '—')}")
 
     left, right = st.columns([1.4, 1])
     with left:
@@ -900,7 +1065,7 @@ if page == "Dashboard":
         else:
             st.bar_chart(cat_df.set_index("category"))
             share_df = cat_df.copy()
-            share_df["share"] = (share_df["display_amount"] / share_df["display_amount"].sum() * 100).round(1)
+            share_df["share"] = (share_df["display_abs_amount"] / share_df["display_abs_amount"].sum() * 100).round(1)
             st.dataframe(share_df, use_container_width=True, hide_index=True)
         end_section()
     with right:
@@ -990,7 +1155,7 @@ if page == "Dashboard":
 # QUICK ADD
 # =========================================================
 
-elif page == "Quick Add":
+elif page == t("quick_add"):
     section("Quick Add", "Paste a short sentence, preview the parsed entry, then save it.")
     quick_text = st.text_input(
         "Quick entry",
@@ -1041,7 +1206,7 @@ elif page == "Quick Add":
 # ADD EXPENSE
 # =========================================================
 
-elif page == "Add Expense":
+elif page == t("add_expense"):
     section("Add transaction", "Manual form for both expenses and income.")
     col1, col2 = st.columns(2)
     with col1:
@@ -1069,7 +1234,7 @@ elif page == "Add Expense":
 # MANAGE EXPENSES
 # =========================================================
 
-elif page == "Manage Expenses":
+elif page == t("manage_expenses"):
     section("Manage expenses", "Search, edit, delete, and inspect duplicates.")
     if filtered_df.empty:
         show_empty("No matching expenses.")
@@ -1131,7 +1296,7 @@ elif page == "Manage Expenses":
 # SUBSCRIPTIONS
 # =========================================================
 
-elif page == "Subscriptions":
+elif page == t("subscriptions"):
     section("Recurring subscriptions", "Grouped view, annual cost estimate, and concentration risk.")
     subs = filtered_df[filtered_df["subscription"] == 1].copy()
     if subs.empty:
@@ -1163,7 +1328,7 @@ elif page == "Subscriptions":
 # SAVINGS
 # =========================================================
 
-elif page == "Savings":
+elif page == t("savings"):
     section("Savings goals", "Create goals, add progress, and keep track of totals.")
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1215,7 +1380,7 @@ elif page == "Savings":
 # ANALYTICS
 # =========================================================
 
-elif page == "Analytics":
+elif page == t("analytics"):
     section("Advanced analytics", "Monthly trend, merchants, weekday patterns, anomalies, and Pareto view.")
     analytics_df = expense_df.copy()
     if analytics_df.empty:
@@ -1282,7 +1447,7 @@ elif page == "Analytics":
 # IMPORT / EXPORT
 # =========================================================
 
-elif page == "Import / Export":
+elif page == t("import_export"):
     section("Export data", "Filtered or full downloads for backup and analysis.")
     export_df = filtered_df.copy()
     full_df = base_display_df.copy()
