@@ -3,7 +3,7 @@ from __future__ import annotations
 import calendar
 import os
 from datetime import date, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import bcrypt
 import pandas as pd
@@ -12,10 +12,9 @@ from supabase import Client, create_client
 
 from utils import month_key, safe_float
 
-
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 
 def hash_password(password: str) -> bytes:
@@ -29,22 +28,6 @@ def check_password(password: str, password_hash: str) -> bool:
 def get_user(username: str):
     res = supabase.table("users").select("*").eq("username", username.strip()).limit(1).execute()
     return res.data[0] if res.data else None
-
-
-def register_user(username: str, password: str) -> Tuple[bool, str]:
-    username = username.strip()
-    if len(username) < 3:
-        return False, l("Username must have at least 3 characters.", "Ім'я користувача має містити щонайменше 3 символи.", "Der Benutzername muss mindestens 3 Zeichen lang sein.")
-    if len(password) < 6:
-        return False, l("Password must have at least 6 characters.", "Пароль має містити щонайменше 6 символів.", "Das Passwort muss mindestens 6 Zeichen lang sein.")
-    exists = supabase.table("users").select("id").eq("username", username).limit(1).execute()
-    if exists.data:
-        return False, l("This username already exists.", "Такий користувач уже існує.", "Dieser Benutzername existiert bereits.")
-    supabase.table("users").insert({
-        "username": username,
-        "password_hash": hash_password(password).decode("utf-8"),
-    }).execute()
-    return True, "Account created successfully."
 
 
 def get_rates_map(base: str = "EUR") -> Dict[str, float]:
@@ -149,6 +132,32 @@ def set_monthly_limit(user_id: int, amount_eur: float) -> None:
         supabase.table("budgets").update(payload).eq("user_id", user_id).execute()
     else:
         supabase.table("budgets").insert(payload).execute()
+
+
+def get_category_budgets(user_id: int) -> dict[str, float]:
+    res = (
+        supabase.table("category_budgets")
+        .select("category, monthly_limit")
+        .eq("user_id", int(user_id))
+        .execute()
+    )
+    return {
+        str(row["category"]): float(row["monthly_limit"])
+        for row in (res.data or [])
+        if row.get("category") is not None and row.get("monthly_limit") is not None
+    }
+
+
+def set_category_budget(user_id: int, category: str, amount_eur: float) -> None:
+    payload = {
+        "user_id": int(user_id),
+        "category": str(category),
+        "monthly_limit": float(amount_eur),
+    }
+    supabase.table("category_budgets").upsert(
+        payload,
+        on_conflict="user_id,category",
+    ).execute()
 
 
 def execute_expense_write(write_fn, payload: Dict[str, object]) -> None:
