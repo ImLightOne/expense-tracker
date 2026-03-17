@@ -77,6 +77,14 @@ from analytics import (
     month_forecast,
     calculate_financial_health,
 )
+from db import (
+    add_transaction,
+    check_password,
+    convert_from_eur,
+    convert_to_eur,
+    delete_expense,
+    ...
+)
 from utils import format_money, infer_category, month_key, parse_quick_add, safe_float
 st.markdown(STYLE, unsafe_allow_html=True)
 
