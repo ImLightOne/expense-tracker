@@ -185,25 +185,158 @@ def show_empty(text: str) -> None:
     st.markdown(f'<div class="soft-box">{text}</div>', unsafe_allow_html=True)
 
 
-def infer_category(note: str, fallback: str = "Other") -> str:
-    text = (note or "").strip().lower()
+MERCHANT_CATEGORY_MAP_EXPENSE = {
+    "billa": "Food", "spar": "Food", "lidl": "Food", "hofer": "Food", "penny": "Food", "dm": "Shopping",
+    "ikea": "Shopping", "amazon": "Shopping", "zalando": "Shopping", "hm": "Shopping", "h&m": "Shopping", "zara": "Shopping",
+    "uber": "Transport", "bolt": "Transport", "oebb": "Transport", "wiener linien": "Transport", "westbahn": "Transport",
+    "shell": "Transport", "omv": "Transport", "esso": "Transport",
+    "netflix": "Entertainment", "spotify": "Entertainment", "steam": "Entertainment", "kino": "Entertainment",
+    "mcdonald": "Cafe", "mcd": "Cafe", "starbucks": "Cafe", "burger king": "Cafe", "subway": "Cafe",
+    "pizza": "Cafe", "restaurant": "Cafe", "cafe": "Cafe",
+    "fitinn": "Sports", "mcfit": "Sports", "gym": "Sports",
+    "bipa": "Health", "pharmacy": "Health", "apotheke": "Health",
+    "wu": "Education", "udemy": "Education", "coursera": "Education",
+    "airbnb": "Travel", "booking": "Travel", "ryanair": "Travel", "wizz": "Travel",
+}
+
+MERCHANT_CATEGORY_MAP_INCOME = {
+    "salary": "Salary", "payroll": "Salary", "bonus": "Bonus", "freelance": "Freelance",
+    "upwork": "Freelance", "fiverr": "Freelance", "dividend": "Investments", "interest": "Investments",
+    "refund": "Refund", "cashback": "Refund", "gift": "Gift",
+}
+
+INCOME_KEYWORDS = {
+    "Salary": ["salary", "paycheck", "wage", "payroll"],
+    "Bonus": ["bonus"],
+    "Freelance": ["freelance", "client", "invoice", "project payment", "upwork", "fiverr"],
+    "Investments": ["dividend", "interest", "investment", "stock", "etf"],
+    "Gift": ["gift", "present"],
+    "Refund": ["refund", "cashback", "reimbursement", "returned"],
+}
+
+STOPWORDS = {
+    "the", "a", "an", "at", "for", "to", "from", "on", "and", "mit", "bei", "im", "in", "am", "vom", "fur", "für",
+    "за", "в", "на", "до", "від", "та", "і", "or", "of", "my", "your", "monthly", "payment", "received", "paid"
+}
+
+
+def normalize_quick_text(text: str) -> str:
+    text = (text or "").strip().lower()
+    text = text.replace("’", "'").replace("`", "'")
+    text = re.sub(r"\d{4}-\d{2}-\d{2}", " ", text)
+    text = re.sub(r"\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?", " ", text)
+    text = re.sub(r"(?:eur|usd|uah|€|\$|₴)", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<!\d)\d+[\.,]?\d{0,2}(?!\d)", " ", text)
+    text = re.sub(r"[^\w\s&+-]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def tokenize_quick_text(text: str) -> List[str]:
+    normalized = normalize_quick_text(text)
+    return [tok for tok in normalized.split() if tok and tok not in STOPWORDS]
+
+
+def detect_merchant_candidate(text: str, tx_type: str = "expense") -> str:
+    normalized = normalize_quick_text(text)
+    merchant_map = MERCHANT_CATEGORY_MAP_INCOME if tx_type == "income" else MERCHANT_CATEGORY_MAP_EXPENSE
+    matches = [merchant for merchant in merchant_map if merchant in normalized]
+    if matches:
+        return max(matches, key=len)
+    tokens = tokenize_quick_text(text)
+    return " ".join(tokens[:2]).strip()
+
+
+def infer_category(note: str, fallback: str = "Other", history_df: Optional[pd.DataFrame] = None, tx_type: str = "expense") -> Dict[str, object]:
+    text = (note or "").strip()
     if not text:
-        return fallback
-    income_keywords = {
-        "Salary": ["salary", "paycheck", "wage"],
-        "Bonus": ["bonus"],
-        "Freelance": ["freelance", "client", "invoice"],
-        "Investments": ["dividend", "interest", "investment", "stock"],
-        "Gift": ["gift", "present"],
-        "Refund": ["refund", "cashback", "reimbursement"],
-    }
-    for category, keywords in income_keywords.items():
-        if any(word in text for word in keywords):
-            return category
-    for category, keywords in CATEGORY_KEYWORDS.items():
-        if any(word in text for word in keywords):
-            return category
-    return fallback
+        return {"category": fallback, "confidence": "low", "reason": "empty", "scores": {}, "merchant": ""}
+
+    normalized = normalize_quick_text(text)
+    tokens = tokenize_quick_text(text)
+    merchant = detect_merchant_candidate(text, tx_type=tx_type)
+    scores: Dict[str, float] = {}
+    merchant_map = MERCHANT_CATEGORY_MAP_INCOME if tx_type == "income" else MERCHANT_CATEGORY_MAP_EXPENSE
+    keyword_map = INCOME_KEYWORDS if tx_type == "income" else CATEGORY_KEYWORDS
+
+    def add_score(category: str, points: float):
+        if category:
+            scores[category] = scores.get(category, 0.0) + float(points)
+
+    matched_merchant = ""
+    for merchant_key, category in merchant_map.items():
+        if merchant_key and merchant_key in normalized:
+            add_score(category, 6)
+            matched_merchant = merchant_key
+
+    history_reason = None
+    if history_df is not None and not getattr(history_df, 'empty', True):
+        hist = history_df.copy()
+        if "type" in hist.columns:
+            hist = hist[hist["type"].fillna("expense").astype(str).str.lower() == tx_type]
+        if not hist.empty and "note" in hist.columns and "category" in hist.columns:
+            notes = hist["note"].fillna("").astype(str)
+            note_norm = notes.apply(normalize_quick_text)
+            masks = []
+            if matched_merchant:
+                masks.append(note_norm.str.contains(re.escape(matched_merchant), regex=True, na=False))
+            elif merchant:
+                masks.append(note_norm.str.contains(re.escape(merchant), regex=True, na=False))
+            if tokens:
+                token_matches = pd.DataFrame({tok: note_norm.str.contains(rf"\b{re.escape(tok)}\b", regex=True, na=False) for tok in tokens[:4]})
+                if not token_matches.empty:
+                    masks.append(token_matches.sum(axis=1) >= min(2, max(1, len(tokens[:4]))))
+            if masks:
+                combined = masks[0]
+                for extra in masks[1:]:
+                    combined = combined | extra
+                hist_match = hist[combined]
+                if not hist_match.empty:
+                    counts = hist_match["category"].value_counts()
+                    if not counts.empty:
+                        top_category = counts.index[0]
+                        dominance = counts.iloc[0] / max(len(hist_match), 1)
+                        add_score(str(top_category), 4 + 4 * dominance)
+                        history_reason = f"history:{top_category}:{len(hist_match)}"
+
+    for category, keywords in keyword_map.items():
+        for keyword in keywords:
+            keyword_norm = normalize_quick_text(keyword)
+            if not keyword_norm:
+                continue
+            if keyword_norm in normalized:
+                add_score(category, 2.5 if " " in keyword_norm else 1.5)
+            for tok in tokens:
+                if tok == keyword_norm:
+                    add_score(category, 2)
+
+    if tx_type == "expense":
+        if any(tok in {"coffee", "lunch", "dinner", "breakfast", "pizza", "burger"} for tok in tokens):
+            add_score("Cafe", 1.5)
+        if any(tok in {"grocery", "groceries", "supermarket"} for tok in tokens):
+            add_score("Food", 1.5)
+    else:
+        if any(tok in {"salary", "bonus", "refund", "gift"} for tok in tokens):
+            mapping = {"salary": "Salary", "bonus": "Bonus", "refund": "Refund", "gift": "Gift"}
+            for tok in tokens:
+                if tok in mapping:
+                    add_score(mapping[tok], 2)
+
+    if scores:
+        best_category, best_score = sorted(scores.items(), key=lambda x: x[1], reverse=True)[0]
+        second_score = sorted(scores.values(), reverse=True)[1] if len(scores) > 1 else 0.0
+        gap = best_score - second_score
+        confidence = "high" if best_score >= 6 or gap >= 3 else "medium" if best_score >= 3 else "low"
+        reason = "merchant" if matched_merchant else history_reason or "keywords"
+        return {
+            "category": best_category,
+            "confidence": confidence,
+            "reason": reason,
+            "scores": dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)),
+            "merchant": merchant or matched_merchant,
+        }
+
+    return {"category": fallback, "confidence": "low", "reason": "fallback", "scores": {}, "merchant": merchant}
 
 
 def extract_merchant(note: str, category: str) -> str:
@@ -217,7 +350,7 @@ def extract_merchant(note: str, category: str) -> str:
     return " ".join(parts[:2]).title()
 
 
-def parse_quick_add(text: str) -> Dict[str, object]:
+def parse_quick_add(text: str, history_df: Optional[pd.DataFrame] = None) -> Dict[str, object]:
     raw = (text or "").strip()
     result: Dict[str, object] = {
         "ok": False,
@@ -228,6 +361,10 @@ def parse_quick_add(text: str) -> Dict[str, object]:
         "note": raw,
         "subscription": False,
         "tx_type": "expense",
+        "confidence": "low",
+        "category_reason": "fallback",
+        "merchant_guess": "",
+        "category_scores": {},
         "error": "Could not parse the entry. Example: 2026-03-17 12.50 EUR coffee at Starbucks",
     }
     if not raw:
@@ -272,7 +409,12 @@ def parse_quick_add(text: str) -> Dict[str, object]:
     income_markers = ["income", "salary", "bonus", "refund", "cashback", "gift", "freelance", "paid", "payment received"]
     result["tx_type"] = "income" if any(word in lowered for word in income_markers) else "expense"
     default_fallback = "Other Income" if result["tx_type"] == "income" else "Other"
-    result["category"] = infer_category(raw, fallback=default_fallback)
+    category_info = infer_category(raw, fallback=default_fallback, history_df=history_df, tx_type=result["tx_type"])
+    result["category"] = category_info.get("category", default_fallback)
+    result["confidence"] = category_info.get("confidence", "low")
+    result["category_reason"] = category_info.get("reason", "fallback")
+    result["merchant_guess"] = category_info.get("merchant", "")
+    result["category_scores"] = category_info.get("scores", {})
     result["ok"] = True
     result["error"] = ""
     return result
@@ -1217,7 +1359,7 @@ elif page == t("quick_add"):
         value=st.session_state.smart_note,
         placeholder="Examples: 2026-03-17 8.5 EUR coffee at Starbucks | 17.03 24.90 groceries | 12 usd uber",
     )
-    preview = parse_quick_add(quick_text)
+    preview = parse_quick_add(quick_text, history_df=expense_df)
     st.session_state.smart_note = quick_text
     if quick_text and preview["ok"]:
         c1, c2, c3, c4 = st.columns(4)
@@ -1229,6 +1371,16 @@ elif page == t("quick_add"):
             st.metric(l("Category", "Категорія", "Kategorie"), lcat(str(preview["category"])))
         with c4:
             st.metric("Type", ltx(preview["tx_type"]))
+        confidence_labels = {
+            "high": l("High confidence", "Висока впевненість", "Hohe Sicherheit"),
+            "medium": l("Medium confidence", "Середня впевненість", "Mittlere Sicherheit"),
+            "low": l("Low confidence", "Низька впевненість", "Niedrige Sicherheit"),
+        }
+        st.caption(
+            f"{l('Category source', 'Джерело категорії', 'Kategoriequelle')}: {preview.get('category_reason', 'fallback')} · "
+            f"{confidence_labels.get(str(preview.get('confidence', 'low')), str(preview.get('confidence', 'low')).title())}"
+            + (f" · {l('Merchant guess', 'Ймовірний продавець', 'Vermuteter Händler')}: {preview.get('merchant_guess')}" if preview.get('merchant_guess') else "")
+        )
         category_options = INCOME_CATEGORIES if preview["tx_type"] == "income" else DEFAULT_CATEGORIES
         default_index = category_options.index(preview["category"]) if preview["category"] in category_options else len(category_options)-1
         manual_category = st.selectbox(l("Adjust category", "Змінити категорію", "Kategorie anpassen"), category_options, index=default_index, format_func=lcat)
