@@ -674,7 +674,6 @@ def calculate_financial_health(expense_df: pd.DataFrame, savings_df: pd.DataFram
         else:
             budget_score = max(20.0, 65.0 - (usage - 1.0) * 120)
     savings_rate = (savings_total / (savings_total + total_spent) * 100) if (savings_total + total_spent) > 0 else 0.0
-    health_score, health_label, health_breakdown = calculate_financial_health(expense_df, savings_df, current_month_limit_display)
     saving_score = min(100.0, savings_rate * 4.0)
     daily = expense_df.groupby("date_only")["display_abs_amount"].sum()
     consistency = 100.0 if len(daily) <= 1 else max(30.0, 100.0 - min(daily.std() / max(daily.mean(), 1e-6), 2.0) * 25)
@@ -883,7 +882,6 @@ if page == "Dashboard":
     biggest_tx = safe_float(expense_df["display_abs_amount"].max())
     savings_total = safe_float(savings_df["saved"].sum())
     savings_rate = (savings_total / (savings_total + total_spent) * 100) if (savings_total + total_spent) > 0 else 0.0
-    health_score, health_label, health_breakdown = calculate_financial_health(expense_df, savings_df, current_month_limit_display)
     with m1:
         st.metric("Top category", top_cat_name)
     with m2:
@@ -1266,7 +1264,7 @@ elif page == "Analytics":
             show_empty("No data.")
         else:
             pareto = cat.copy()
-            pareto["cum_pct"] = (pareto["display_amount"].cumsum() / pareto["display_amount"].sum() * 100).round(1)
+            pareto["cum_pct"] = (pareto["display_abs_amount"].cumsum() / pareto["display_abs_amount"].sum() * 100).round(1)
             st.dataframe(pareto, use_container_width=True, hide_index=True)
             hits_80 = pareto[pareto["cum_pct"] <= 80.0]
             st.caption(f"{len(hits_80) if not hits_80.empty else 1} category(ies) explain roughly 80% of the selected spending.")
