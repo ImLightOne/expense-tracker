@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import calendar
 import math
 import re
 from dataclasses import dataclass
@@ -374,8 +375,8 @@ def parse_quick_add(text: str, history_df: Optional[pd.DataFrame] = None) -> Dic
     if date_match:
         try:
             result["date"] = datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"Skipped: {e}")
     else:
         short_match = re.search(r"\b(\d{1,2}[./-]\d{1,2})(?:[./-](\d{2,4}))?\b", raw)
         if short_match:
@@ -388,8 +389,8 @@ def parse_quick_add(text: str, history_df: Optional[pd.DataFrame] = None) -> Dic
                 year += 2000
             try:
                 result["date"] = date(year, month, day)
-            except Exception:
-                pass
+            except Exception as e:
+                st.warning(f"Skipped: {e}")
 
     amount_match = re.search(r"(?<!\d)(\d+[\.,]?\d{0,2})(?!\d)", raw)
     if not amount_match:
@@ -480,8 +481,8 @@ def get_rates_map(base: str = "EUR") -> Dict[str, float]:
                     result[cur] = 1.0
                 elif cur in rates:
                     result[cur] = float(rates[cur])
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Skipped: {e}")
 
     try:
         data = requests.get("https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json", timeout=8).json()
@@ -500,8 +501,8 @@ def get_rates_map(base: str = "EUR") -> Dict[str, float]:
                 result["EUR"] = 1 / eur_uah
                 result["USD"] = 1 / usd_uah
                 result["UAH"] = 1.0
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Skipped: {e}")
 
     for key, value in fallback.items():
         result.setdefault(key, value)
@@ -566,6 +567,15 @@ def set_monthly_limit(user_id: int, amount_eur: float) -> None:
         supabase.table("budgets").insert(payload).execute()
 
 
+def execute_expense_write(write_fn, payload: Dict[str, object]) -> None:
+    try:
+        write_fn(payload)
+    except Exception:
+        fallback_payload = dict(payload)
+        fallback_payload.pop("type", None)
+        write_fn(fallback_payload)
+
+
 def add_transaction(user_id: int, expense_date: date, amount: float, category: str, currency: str, tx_type: str = "expense", note: str = "", subscription: int = 0) -> None:
     signed_amount = abs(amount) * (-1 if tx_type == "income" else 1)
     amount_eur = convert_to_eur(signed_amount, currency)
@@ -577,13 +587,9 @@ def add_transaction(user_id: int, expense_date: date, amount: float, category: s
         "currency": currency,
         "subscription": int(subscription if tx_type == "expense" else 0),
         "note": (note or "").strip(),
+        "type": tx_type,
     }
-    try:
-        payload["type"] = tx_type
-        supabase.table("expenses").insert(payload).execute()
-    except Exception:
-        payload.pop("type", None)
-        supabase.table("expenses").insert(payload).execute()
+    execute_expense_write(lambda p: supabase.table("expenses").insert(p).execute(), payload)
 
 
 def add_expense(user_id: int, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0) -> None:
@@ -601,13 +607,12 @@ def update_transaction(user_id: int, expense_id: int, expense_date: date, origin
         "category": category,
         "note": (note or "").strip(),
         "subscription": 1 if (subscription and tx_type == "expense") else 0,
+        "type": tx_type,
     }
-    try:
-        payload["type"] = tx_type
-        supabase.table("expenses").update(payload).eq("id", int(expense_id)).eq("user_id", int(user_id)).execute()
-    except Exception:
-        payload.pop("type", None)
-        supabase.table("expenses").update(payload).eq("id", int(expense_id)).eq("user_id", int(user_id)).execute()
+    execute_expense_write(
+        lambda p: supabase.table("expenses").update(p).eq("id", int(expense_id)).eq("user_id", int(user_id)).execute(),
+        payload,
+    )
 
 
 def update_expense(user_id: int, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
@@ -629,7 +634,9 @@ def upsert_monthly_subscriptions(user_id: int) -> int:
 
     today = date.today()
     current_month = today.strftime("%Y-%m")
-    month_start = date(today.year, today.month, 1).isoformat()
+    month_start = date(today.year, today.month, 1)
+    month_end_day = calendar.monthrange(today.year, today.month)[1]
+    next_month_start = month_start + timedelta(days=month_end_day)
     created = 0
 
     for _, row in subs.iterrows():
@@ -643,15 +650,15 @@ def upsert_monthly_subscriptions(user_id: int) -> int:
             .eq("category", str(row["category"]))
             .eq("note", str(row["note"]))
             .eq("amount", float(row["amount"]))
-            .gte("date", f"{current_month}-01")
-            .lt("date", f"{current_month}-32")
+            .gte("date", month_start.isoformat())
+            .lt("date", next_month_start.isoformat())
             .limit(1)
             .execute()
         )
         if not exists.data:
             supabase.table("expenses").insert({
                 "user_id": user_id,
-                "date": month_start,
+                "date": month_start.isoformat(),
                 "amount": float(row["amount"]),
                 "category": str(row["category"]),
                 "currency": str(row["currency"] or "EUR"),
@@ -1719,7 +1726,8 @@ elif page == t("import_export"):
                         if cat not in valid_categories:
                             cat = infer_category(note, fallback="Other Income" if tx_type == "income" else "Other")
                         valid_rows.append((d, amt, cur, cat, note, sub, tx_type))
-                    except Exception:
+                    except Exception as e:
+                        st.warning(f"Skipped: {e}")
                         continue
                 st.caption(f"{l("Valid rows ready to import", "Валідних рядків готово до імпорту", "Gültige Zeilen bereit für den Import")}: {len(valid_rows)}")
                 if valid_rows and st.button(l("Import rows", "Імпортувати рядки", "Zeilen importieren"), use_container_width=True, type="primary"):
