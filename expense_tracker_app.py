@@ -58,6 +58,29 @@ CATEGORY_COLORS = {
     "Other Income": "#0f766e",
 }
 
+
+CATEGORY_TRANSLATIONS = {
+    "Food": {"uk": "Їжа", "de": "Essen"},
+    "Transport": {"uk": "Транспорт", "de": "Transport"},
+    "Rent": {"uk": "Оренда", "de": "Miete"},
+    "Entertainment": {"uk": "Розваги", "de": "Unterhaltung"},
+    "Shopping": {"uk": "Покупки", "de": "Shopping"},
+    "Health": {"uk": "Здоров'я", "de": "Gesundheit"},
+    "Sports": {"uk": "Спорт", "de": "Sport"},
+    "Bills": {"uk": "Рахунки", "de": "Rechnungen"},
+    "Cafe": {"uk": "Кафе", "de": "Café"},
+    "Education": {"uk": "Освіта", "de": "Bildung"},
+    "Travel": {"uk": "Подорожі", "de": "Reisen"},
+    "Other": {"uk": "Інше", "de": "Sonstiges"},
+    "Salary": {"uk": "Зарплата", "de": "Gehalt"},
+    "Bonus": {"uk": "Бонус", "de": "Bonus"},
+    "Freelance": {"uk": "Фриланс", "de": "Freelance"},
+    "Investments": {"uk": "Інвестиції", "de": "Investitionen"},
+    "Gift": {"uk": "Подарунок", "de": "Geschenk"},
+    "Refund": {"uk": "Повернення", "de": "Rückerstattung"},
+    "Other Income": {"uk": "Інший дохід", "de": "Sonstige Einnahmen"},
+}
+
 CATEGORY_KEYWORDS = {
     "Food": ["grocery", "groceries", "supermarket", "spar", "billa", "lidl", "hofer", "food", "market"],
     "Transport": ["uber", "taxi", "bolt", "train", "bus", "tram", "metro", "fuel", "gas", "parking"],
@@ -692,26 +715,36 @@ def calculate_financial_health(expense_df: pd.DataFrame, savings_df: pd.DataFram
 def generate_smart_insights(expense_df: pd.DataFrame, income_df: pd.DataFrame, savings_df: pd.DataFrame, monthly_limit_display: Optional[float], display_currency: str) -> List[str]:
     insights: List[str] = []
     if expense_df.empty and income_df.empty:
-        return ["Add a few transactions to unlock smart insights."]
+        return [l("Add a few transactions to unlock smart insights.", "Додай кілька транзакцій, щоб відкрити розумні інсайти.", "Füge einige Transaktionen hinzu, um smarte Insights freizuschalten.")]
     if not expense_df.empty:
         cat = category_summary(expense_df, "display_abs_amount")
         if not cat.empty:
-            insights.append(f"Top expense category: {cat.iloc[0]['category']} — {format_money(cat.iloc[0]['display_abs_amount'], display_currency)}")
+            insights.append(
+                l(
+                    "Top expense category: {category} — {amount}",
+                    "Найбільша категорія витрат: {category} — {amount}",
+                    "Größte Ausgabenkategorie: {category} — {amount}",
+                ).format(category=lcat(cat.iloc[0]["category"]), amount=format_money(cat.iloc[0]["display_abs_amount"], display_currency))
+            )
         monthly_spent = safe_float(expense_df[expense_df["month"] == month_key(date.today())]["display_abs_amount"].sum())
         if monthly_limit_display and monthly_limit_display > 0:
             usage = monthly_spent / monthly_limit_display
             if usage > 1:
-                insights.append("You are over budget this month.")
+                insights.append(l("You are over budget this month.", "Цього місяця ти перевищив бюджет.", "Diesen Monat liegst du über dem Budget."))
             elif usage > 0.85:
-                insights.append("You are getting close to your monthly budget cap.")
+                insights.append(l("You are getting close to your monthly budget cap.", "Ти наближаєшся до місячного ліміту бюджету.", "Du näherst dich deinem monatlichen Budgetlimit."))
     if not income_df.empty and not expense_df.empty:
         net = safe_float(income_df["display_abs_amount"].sum()) - safe_float(expense_df["display_abs_amount"].sum())
-        insights.append(f"Net balance for current filter: {format_money(net, display_currency)}")
+        insights.append(
+            l("Net balance for current filter: {amount}", "Чистий баланс для поточного фільтра: {amount}", "Nettosaldo für den aktuellen Filter: {amount}").format(amount=format_money(net, display_currency))
+        )
     if not savings_df.empty:
         total_saved = safe_float(savings_df["saved"].sum())
         total_target = safe_float(savings_df["target"].sum())
         if total_target > 0:
-            insights.append(f"Savings goals progress: {(total_saved / total_target) * 100:.1f}% complete.")
+            insights.append(
+                l("Savings goals progress: {pct:.1f}% complete.", "Прогрес цілей заощаджень: {pct:.1f}% виконано.", "Fortschritt der Sparziele: {pct:.1f}% erreicht.").format(pct=(total_saved / total_target) * 100)
+            )
     return insights[:4]
 
 def savings_progress(saved: float, target: float) -> float:
@@ -905,6 +938,20 @@ def l(en: str, uk: str, de: str) -> str:
     lang = st.session_state.get("lang", "en")
     return {"en": en, "uk": uk, "de": de}.get(lang, en)
 
+
+def lcat(category: str) -> str:
+    lang = st.session_state.get("lang", "en")
+    if lang == "en":
+        return str(category)
+    return CATEGORY_TRANSLATIONS.get(str(category), {}).get(lang, str(category))
+
+def ltx(tx_type: str) -> str:
+    mapping = {
+        "expense": l("Expense", "Витрата", "Ausgabe"),
+        "income": l("Income", "Дохід", "Einnahme"),
+    }
+    return mapping.get(str(tx_type).lower(), str(tx_type).title())
+
 # =========================================================
 # SIDEBAR / SESSION
 # =========================================================
@@ -1046,7 +1093,7 @@ if page == t("dashboard"):
 
     m1, m2, m3, m4 = st.columns(4)
     top_cat = category_summary(expense_df, "display_abs_amount")
-    top_cat_name = top_cat.iloc[0]["category"] if not top_cat.empty else "—"
+    top_cat_name = lcat(top_cat.iloc[0]["category"]) if not top_cat.empty else "—"
     biggest_tx = safe_float(expense_df["display_abs_amount"].max())
     savings_total = safe_float(savings_df["saved"].sum())
     savings_rate = (savings_total / (savings_total + total_spent) * 100) if (savings_total + total_spent) > 0 else 0.0
@@ -1067,14 +1114,18 @@ if page == t("dashboard"):
         if cat_df.empty:
             show_empty(l("Add a few transactions to unlock the dashboard.", "Додай кілька транзакцій, щоб активувати дашборд.", "Füge ein paar Transaktionen hinzu, um das Dashboard zu aktivieren."))
         else:
-            st.bar_chart(cat_df.set_index("category"))
+            cat_df_view = cat_df.copy()
+            cat_df_view["category"] = cat_df_view["category"].map(lcat)
+            st.bar_chart(cat_df_view.set_index("category"))
             share_df = cat_df.copy()
             share_df["share"] = (share_df["display_abs_amount"] / share_df["display_abs_amount"].sum() * 100).round(1)
             st.dataframe(share_df, use_container_width=True, hide_index=True)
         end_section()
     with right:
         section(l("Category split", "Розподіл категорій", "Kategorieverteilung"), l("Pie view for the same filtered range.", "Кругова діаграма для того ж фільтра.", "Kreisdiagramm für denselben Filter."))
-        plot_pie(category_summary(expense_df, "display_abs_amount"), "display_abs_amount")
+        pie_df = category_summary(expense_df, "display_abs_amount").copy()
+        pie_df["category"] = pie_df["category"].map(lcat)
+        plot_pie(pie_df, "display_abs_amount")
         end_section()
 
     left2, right2 = st.columns([1.1, 1])
@@ -1135,8 +1186,8 @@ if page == t("dashboard"):
             show_empty(l("No expenses in the selected range.", "У вибраному діапазоні немає витрат.", "Keine Ausgaben im ausgewählten Bereich."))
         else:
             for _, row in recent.iterrows():
-                badge = f'<span class="badge" style="background:{CATEGORY_COLORS.get(row["category"], CATEGORY_COLORS["Other"])}">{row["category"]}</span>'
-                sub_badge = '<span class="badge" style="background:#3b82f6">Subscription</span>' if int(row["subscription"]) == 1 else ""
+                badge = f'<span class="badge" style="background:{CATEGORY_COLORS.get(row["category"], CATEGORY_COLORS["Other"])}">{lcat(row["category"])}</span>'
+                sub_badge = f'<span class="badge" style="background:#3b82f6">{l("Subscription", "Підписка", "Abo")}</span>' if int(row["subscription"]) == 1 else ""
                 st.markdown(
                     f'<div class="feed-row"><div>{badge} {sub_badge}<br><span class="small-muted">{row["date_only"]} · {row["note"] or row["merchant"]}</span></div>'
                     f'<div><strong>{format_money(row["display_amount"], display_currency)}</strong></div></div>',
@@ -1162,7 +1213,7 @@ if page == t("dashboard"):
 elif page == t("quick_add"):
     section(l("Quick Add", "Швидке додавання", "Schnell hinzufügen"), l("Paste a short sentence, preview the parsed entry, then save it.", "Встав коротке речення, переглянь розбір і збережи.", "Füge einen kurzen Satz ein, prüfe die Erkennung und speichere dann."))
     quick_text = st.text_input(
-        "Quick entry",
+        l("Quick entry", "Швидкий запис", "Schnelleingabe"),
         value=st.session_state.smart_note,
         placeholder="Examples: 2026-03-17 8.5 EUR coffee at Starbucks | 17.03 24.90 groceries | 12 usd uber",
     )
@@ -1171,18 +1222,18 @@ elif page == t("quick_add"):
     if quick_text and preview["ok"]:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric("Amount", format_money(preview["amount"], preview["currency"]))
+            st.metric(l("Amount", "Сума", "Betrag"), format_money(preview["amount"], preview["currency"]))
         with c2:
-            st.metric("Date", str(preview["date"]))
+            st.metric(l("Date", "Дата", "Datum"), str(preview["date"]))
         with c3:
-            st.metric("Category", str(preview["category"]))
+            st.metric(l("Category", "Категорія", "Kategorie"), lcat(str(preview["category"])))
         with c4:
-            st.metric("Type", preview["tx_type"].title())
+            st.metric("Type", ltx(preview["tx_type"]))
         category_options = INCOME_CATEGORIES if preview["tx_type"] == "income" else DEFAULT_CATEGORIES
         default_index = category_options.index(preview["category"]) if preview["category"] in category_options else len(category_options)-1
-        manual_category = st.selectbox("Adjust category", category_options, index=default_index)
-        note = st.text_input("Note / merchant", value=str(preview["note"]))
-        subscription = st.checkbox("Recurring monthly subscription", value=bool(preview["subscription"]), disabled=preview["tx_type"] == "income")
+        manual_category = st.selectbox(l("Adjust category", "Змінити категорію", "Kategorie anpassen"), category_options, index=default_index, format_func=lcat)
+        note = st.text_input(l("Note / merchant", "Нотатка / продавець", "Notiz / Händler"), value=str(preview["note"]))
+        subscription = st.checkbox(l("Recurring monthly subscription", "Щомісячна повторювана підписка", "Monatlich wiederkehrendes Abo"), value=bool(preview["subscription"]), disabled=preview["tx_type"] == "income")
         if st.button(l("Save quick entry", "Зберегти швидкий запис", "Schnelleingabe speichern"), type="primary", use_container_width=True):
             add_transaction(
                 user_id,
@@ -1202,7 +1253,7 @@ elif page == t("quick_add"):
     end_section()
 
     section(l("Why this helps", "Чому це корисно", "Warum das hilft"), l("Useful for mobile, quick logging, and chat-style input.", "Зручно для телефону, швидкого внесення і вводу як у чаті.", "Nützlich für Handy, schnelle Erfassung und chatartigen Input."))
-    st.write("The parser detects date, amount, currency, subscription hints, and suggests a category from the note.")
+    st.write(l("The parser detects date, amount, currency, subscription hints, and suggests a category from the note.", "Парсер визначає дату, суму, валюту, ознаки підписки та пропонує категорію з нотатки.", "Der Parser erkennt Datum, Betrag, Währung, Abo-Hinweise und schlägt anhand der Notiz eine Kategorie vor."))
     end_section()
 
 
@@ -1214,19 +1265,19 @@ elif page == t("add_expense"):
     section(l("Add transaction", "Додати транзакцію", "Transaktion hinzufügen"), l("Manual form for both expenses and income.", "Ручна форма для витрат і доходів.", "Manuelles Formular für Ausgaben und Einnahmen."))
     col1, col2 = st.columns(2)
     with col1:
-        tx_type = st.selectbox("Transaction type", ["expense", "income"], format_func=lambda x: x.title())
-        amount = st.number_input("Amount", min_value=0.01, step=0.5)
-        currency = st.selectbox("Currency", SUPPORTED_CURRENCIES)
-        note = st.text_input("Note / description")
+        tx_type = st.selectbox(l("Transaction type", "Тип транзакції", "Transaktionstyp"), ["expense", "income"], format_func=lambda x: ltx(x))
+        amount = st.number_input(l("Amount", "Сума", "Betrag"), min_value=0.01, step=0.5)
+        currency = st.selectbox(l("Currency", "Валюта", "Währung"), SUPPORTED_CURRENCIES)
+        note = st.text_input(l("Note / description", "Нотатка / опис", "Notiz / Beschreibung"))
         suggested_category = infer_category(note, fallback="Other Income" if tx_type == "income" else "Other") if note else ("Other Income" if tx_type == "income" else "Other")
     with col2:
-        expense_date = st.date_input("Date", value=date.today())
+        expense_date = st.date_input(l("Date", "Дата", "Datum"), value=date.today())
         category_options = INCOME_CATEGORIES if tx_type == "income" else DEFAULT_CATEGORIES
-        category = st.selectbox("Category", category_options, index=category_options.index(suggested_category) if suggested_category in category_options else len(category_options)-1)
-        is_subscription = st.checkbox("Recurring monthly subscription", disabled=tx_type == "income")
+        category = st.selectbox(l("Category", "Категорія", "Kategorie"), category_options, index=category_options.index(suggested_category) if suggested_category in category_options else len(category_options)-1, format_func=lcat)
+        is_subscription = st.checkbox(l("Recurring monthly subscription", "Щомісячна повторювана підписка", "Monatlich wiederkehrendes Abo"), disabled=tx_type == "income")
 
     if note:
-        st.caption(f"Suggested category from note: {suggested_category}")
+        st.caption(fl("Suggested category from note: {suggested_category}", "Запропонована категорія з нотатки: {suggested_category}", "Vorgeschlagene Kategorie aus der Notiz: {suggested_category}"))
     if st.button(l("Save transaction", "Зберегти транзакцію", "Transaktion speichern"), use_container_width=True):
         add_transaction(user_id, expense_date, amount, category, currency, tx_type, note, 1 if is_subscription else 0)
         st.success(l("Transaction added.", "Транзакцію додано.", "Transaktion hinzugefügt."))
@@ -1251,21 +1302,21 @@ elif page == t("manage_expenses"):
             + managed["currency"].astype(str) + " | "
             + managed["note"].fillna("")
         )
-        selected_label = st.selectbox("Select transaction", managed["label"].tolist())
+        selected_label = st.selectbox(l("Select transaction", "Обрати транзакцію", "Transaktion auswählen"), managed["label"].tolist())
         row = managed.loc[managed["label"] == selected_label].iloc[0]
 
         c1, c2 = st.columns(2)
         with c1:
-            edit_date = st.date_input("Date", value=row["date"].date(), key="edit_date")
+            edit_date = st.date_input(l("Date", "Дата", "Datum"), value=row["date"].date(), key="edit_date")
             edit_original_amount = st.number_input("Original amount", min_value=0.0, value=float(row["original_amount"]), step=0.5)
-            edit_currency = st.selectbox("Original currency", SUPPORTED_CURRENCIES, index=SUPPORTED_CURRENCIES.index(row["currency"]))
+            edit_currency = st.selectbox(l("Original currency", "Початкова валюта", "Originalwährung"), SUPPORTED_CURRENCIES, index=SUPPORTED_CURRENCIES.index(row["currency"]))
         with c2:
-            edit_type = st.selectbox("Transaction type", ["expense", "income"], index=0 if row["type"] == "expense" else 1, format_func=lambda x: x.title())
+            edit_type = st.selectbox(l("Transaction type", "Тип транзакції", "Transaktionstyp"), ["expense", "income"], index=0 if row["type"] == "expense" else 1, format_func=lambda x: x.title())
             category_options = DEFAULT_CATEGORIES if edit_type == "expense" else INCOME_CATEGORIES
             current_category = row["category"] if row["category"] in category_options else category_options[-1]
-            edit_category = st.selectbox("Category", category_options, index=category_options.index(current_category))
-            edit_note = st.text_input("Note / description", value=str(row["note"] or ""))
-            edit_subscription = st.checkbox("Recurring monthly subscription", value=bool(row["subscription"]), disabled=edit_type == "income")
+            edit_category = st.selectbox(l("Category", "Категорія", "Kategorie"), category_options, index=category_options.index(current_category), format_func=lcat)
+            edit_note = st.text_input(l("Note / description", "Нотатка / опис", "Notiz / Beschreibung"), value=str(row["note"] or ""))
+            edit_subscription = st.checkbox(l("Recurring monthly subscription", "Щомісячна повторювана підписка", "Monatlich wiederkehrendes Abo"), value=bool(row["subscription"]), disabled=edit_type == "income")
 
         b1, b2 = st.columns(2)
         if b1.button("Save changes", use_container_width=True):
@@ -1280,6 +1331,8 @@ elif page == t("manage_expenses"):
         st.divider()
         st.write(f"**{l("Filtered table", "Відфільтрована таблиця", "Gefilterte Tabelle")}**")
         table = managed[["date_only", "type", "category", "merchant", "note", "original_amount", "currency", "display_amount", "subscription"]].copy()
+        table["type"] = table["type"].map(ltx)
+        table["category"] = table["category"].map(lcat)
         st.dataframe(table, use_container_width=True, hide_index=True)
     end_section()
 
@@ -1316,12 +1369,12 @@ elif page == t("subscriptions"):
         annualized = total_monthly * 12
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric("Estimated monthly total", format_money(total_monthly, display_currency))
+            st.metric(l("Estimated monthly total", "Орієнтовна сума за місяць", "Geschätzte Monatssumme"), format_money(total_monthly, display_currency))
         with c2:
-            st.metric("Estimated annual total", format_money(annualized, display_currency))
+            st.metric(l("Estimated annual total", "Орієнтовна сума за рік", "Geschätzte Jahressumme"), format_money(annualized, display_currency))
         with c3:
             top_share = grouped.iloc[0]["monthly_display"] / total_monthly * 100 if total_monthly else 0
-            st.metric("Largest subscription share", f"{top_share:.1f}%")
+            st.metric(l("Largest subscription share", "Найбільша частка підписки", "Größter Abo-Anteil"), f"{top_share:.1f}%")
         grouped["last_seen"] = pd.to_datetime(grouped["last_seen"]).dt.date
         st.dataframe(grouped, use_container_width=True, hide_index=True)
         st.bar_chart(grouped.set_index("merchant")[["monthly_display"]])
@@ -1412,7 +1465,9 @@ elif page == t("analytics"):
             if merchants.empty:
                 show_empty(l("No merchant-like notes found.", "Схожих на продавця нотаток не знайдено.", "Keine händlerähnlichen Notizen gefunden."))
             else:
-                st.dataframe(merchants.head(15), use_container_width=True, hide_index=True)
+                merchants_view = merchants.head(15).copy()
+                merchants_view["category"] = merchants_view["category"].map(lcat) if "category" in merchants_view.columns else merchants_view.get("category")
+                st.dataframe(merchants_view, use_container_width=True, hide_index=True)
             end_section()
         with right:
             section(l("Anomaly detector", "Пошук аномалій", "Anomalie-Erkennung"), l("Flags unusually high transactions within each category.", "Позначає незвично великі транзакції в межах кожної категорії.", "Markiert ungewöhnlich hohe Transaktionen innerhalb jeder Kategorie."))
@@ -1420,8 +1475,10 @@ elif page == t("analytics"):
             if anomalies.empty:
                 show_empty(l("No strong anomalies detected.", "Сильних аномалій не виявлено.", "Keine starken Anomalien erkannt."))
             else:
+                anomalies_view = anomalies[["date_only", "category", "note", "display_amount", "currency"]].sort_values("display_amount", ascending=False).copy()
+                anomalies_view["category"] = anomalies_view["category"].map(lcat)
                 st.dataframe(
-                    anomalies[["date_only", "category", "note", "display_amount", "currency"]].sort_values("display_amount", ascending=False),
+                    anomalies_view,
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1433,10 +1490,11 @@ elif page == t("analytics"):
             show_empty(l("No data.", "Немає даних.", "Keine Daten."))
         else:
             pareto = cat.copy()
+            pareto["category"] = pareto["category"].map(lcat)
             pareto["cum_pct"] = (pareto["display_abs_amount"].cumsum() / pareto["display_abs_amount"].sum() * 100).round(1)
             st.dataframe(pareto, use_container_width=True, hide_index=True)
             hits_80 = pareto[pareto["cum_pct"] <= 80.0]
-            st.caption(f"{len(hits_80) if not hits_80.empty else 1} {l("category(ies) explain roughly 80% of the selected spending.", "категорій пояснюють приблизно 80% вибраних витрат.", "Kategorie(n) erklären ungefähr 80% der ausgewählten Ausgaben.")}")
+            st.caption(f"{len(hits_80) if not hits_80.empty else 1} " + l("category(ies) explain roughly 80% of the selected spending.", "категорій пояснюють приблизно 80% вибраних витрат.", "Kategorie(n) erklären ungefähr 80% der ausgewählten Ausgaben."))
         end_section()
 
         section(l("Spending calendar", "Календар витрат", "Ausgabenkalender"), l("Daily total view for the selected period.", "Щоденний підсумок за вибраний період.", "Tagesgesamtansicht für den ausgewählten Zeitraum."))
