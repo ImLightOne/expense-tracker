@@ -275,12 +275,12 @@ def get_user(username: str):
 def register_user(username: str, password: str) -> Tuple[bool, str]:
     username = username.strip()
     if len(username) < 3:
-        return False, "Username must have at least 3 characters."
+        return False, l("Username must have at least 3 characters.", "Ім'я користувача має містити щонайменше 3 символи.", "Der Benutzername muss mindestens 3 Zeichen lang sein.")
     if len(password) < 6:
-        return False, "Password must have at least 6 characters."
+        return False, l("Password must have at least 6 characters.", "Пароль має містити щонайменше 6 символів.", "Das Passwort muss mindestens 6 Zeichen lang sein.")
     exists = supabase.table("users").select("id").eq("username", username).limit(1).execute()
     if exists.data:
-        return False, "This username already exists."
+        return False, l("This username already exists.", "Такий користувач уже існує.", "Dieser Benutzername existiert bereits.")
     supabase.table("users").insert({
         "username": username,
         "password_hash": hash_password(password).decode("utf-8"),
@@ -650,11 +650,11 @@ def get_date_range_presets(min_date: date, max_date: date) -> Dict[str, Tuple[da
     last_90 = max(min_date, today - timedelta(days=89))
     year_start = max(min_date, date(today.year, 1, 1))
     return {
-        "This month": (max(min_date, month_start), max_date),
-        "Last 30 days": (last_30, max_date),
-        "Last 90 days": (last_90, max_date),
-        "Year to date": (year_start, max_date),
-        "All time": (min_date, max_date),
+        l("This month", "Цей місяць", "Dieser Monat"): (max(min_date, month_start), max_date),
+        l("Last 30 days", "Останні 30 днів", "Letzte 30 Tage"): (last_30, max_date),
+        l("Last 90 days", "Останні 90 днів", "Letzte 90 Tage"): (last_90, max_date),
+        l("Year to date", "Від початку року", "Jahr bis heute"): (year_start, max_date),
+        l("All time", "Увесь час", "Gesamter Zeitraum"): (min_date, max_date),
     }
 
 
@@ -722,7 +722,7 @@ def savings_progress(saved: float, target: float) -> float:
 
 def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount") -> None:
     if cat_df.empty:
-        show_empty("Not enough data.")
+        show_empty(l("Not enough data.", "Недостатньо даних.", "Nicht genug Daten."))
         return
     colors = [CATEGORY_COLORS.get(c, CATEGORY_COLORS["Other"]) for c in cat_df["category"]]
     fig, ax = plt.subplots(figsize=(5.5, 5.5))
@@ -901,6 +901,10 @@ def t(key: str, **kwargs) -> str:
     template = TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
     return template.format(**kwargs) if kwargs else template
 
+def l(en: str, uk: str, de: str) -> str:
+    lang = st.session_state.get("lang", "en")
+    return {"en": en, "uk": uk, "de": de}.get(lang, en)
+
 # =========================================================
 # SIDEBAR / SESSION
 # =========================================================
@@ -957,7 +961,7 @@ if not st.session_state.user_id:
 user_id = require_login()
 created_subs = upsert_monthly_subscriptions(user_id)
 if created_subs:
-    st.toast(f"Added {created_subs} recurring subscription(s) for this month.")
+    st.toast(f"{created_subs} {l("recurring subscription(s) added for this month.", "повторюваних підписок додано за цей місяць.", "wiederkehrende(s) Abonnement(s) für diesen Monat hinzugefügt.")}")
 
 st.sidebar.divider()
 display_currency = st.sidebar.selectbox(t("display_currency"), SUPPORTED_CURRENCIES, index=0)
@@ -1029,16 +1033,16 @@ if page == t("dashboard"):
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        metric_card("Total spent", format_money(total_spent, display_currency), f"{tx_count} transactions")
+        metric_card(l("Total spent", "Усього витрачено", "Gesamtausgaben"), format_money(total_spent, display_currency), f"{tx_count} transactions")
     with c2:
-        metric_card("Total income", format_money(total_income, display_currency), f"Net: {format_money(net_balance, display_currency)}")
+        metric_card(l("Total income", "Усього доходів", "Gesamteinnahmen"), format_money(total_income, display_currency), f"{l("Net", "Баланс", "Netto")}: {format_money(net_balance, display_currency)}")
     with c3:
-        metric_card("Average expense", format_money(avg_tx, display_currency), f"Month forecast: {format_money(forecast_value, display_currency)}")
+        metric_card(l("Average expense", "Середня витрата", "Durchschnittliche Ausgabe"), format_money(avg_tx, display_currency), f"{l("Month forecast", "Прогноз на місяць", "Monatsprognose")}: {format_money(forecast_value, display_currency)}")
     with c4:
         if current_month_limit_display is not None:
-            metric_card("Budget left", format_money(budget_left, display_currency), f"Budget: {format_money(current_month_limit_display, display_currency)}")
+            metric_card(l("Budget left", "Залишок бюджету", "Verbleibendes Budget"), format_money(budget_left, display_currency), f"Budget: {format_money(current_month_limit_display, display_currency)}")
         else:
-            metric_card("Budget left", "Not set", "Set a monthly budget below")
+            metric_card(l("Budget left", "Залишок бюджету", "Verbleibendes Budget"), l("Not set", "Не задано", "Nicht festgelegt"), l("Set a monthly budget below", "Задай місячний бюджет нижче", "Lege unten ein Monatsbudget fest"))
 
     m1, m2, m3, m4 = st.columns(4)
     top_cat = category_summary(expense_df, "display_abs_amount")
@@ -1058,10 +1062,10 @@ if page == t("dashboard"):
 
     left, right = st.columns([1.4, 1])
     with left:
-        section("Category overview", "Biggest spending buckets for the current filter set.")
+        section(l("Category overview", "Огляд категорій", "Kategorieübersicht"), l("Biggest spending buckets for the current filter set.", "Найбільші категорії витрат для поточного фільтра.", "Größte Ausgabenkategorien für den aktuellen Filter."))
         cat_df = category_summary(expense_df, "display_abs_amount")
         if cat_df.empty:
-            show_empty("Add a few transactions to unlock the dashboard.")
+            show_empty(l("Add a few transactions to unlock the dashboard.", "Додай кілька транзакцій, щоб активувати дашборд.", "Füge ein paar Transaktionen hinzu, um das Dashboard zu aktivieren."))
         else:
             st.bar_chart(cat_df.set_index("category"))
             share_df = cat_df.copy()
@@ -1069,45 +1073,45 @@ if page == t("dashboard"):
             st.dataframe(share_df, use_container_width=True, hide_index=True)
         end_section()
     with right:
-        section("Category split", "Pie view for the same filtered range.")
+        section(l("Category split", "Розподіл категорій", "Kategorieverteilung"), l("Pie view for the same filtered range.", "Кругова діаграма для того ж фільтра.", "Kreisdiagramm für denselben Filter."))
         plot_pie(category_summary(expense_df, "display_abs_amount"), "display_abs_amount")
         end_section()
 
     left2, right2 = st.columns([1.1, 1])
     with left2:
-        section("Budget pacing", "Compares this month’s spending with month progress.")
+        section(l("Budget pacing", "Темп витрат бюджету", "Budgetverlauf"), l("Compares this month’s spending with month progress.", "Порівнює витрати цього місяця з прогресом місяця.", "Vergleicht die Ausgaben dieses Monats mit dem Monatsfortschritt."))
         limit_input = st.number_input(
-            f"Monthly budget ({display_currency})",
+            f"{l("Monthly budget", "Місячний бюджет", "Monatsbudget")} ({display_currency})",
             min_value=0.0,
             value=safe_float(current_month_limit_display),
             step=10.0,
         )
-        if st.button("Save monthly budget", use_container_width=True):
+        if st.button(l("Save monthly budget", "Зберегти місячний бюджет", "Monatsbudget speichern"), use_container_width=True):
             set_monthly_limit(user_id, convert_to_eur(limit_input, display_currency))
-            st.success("Budget saved.")
+            st.success(l("Budget saved.", "Бюджет збережено.", "Budget gespeichert."))
             rerun()
         if current_month_limit_display:
             elapsed_pct = date.today().day / pd.Timestamp.today().days_in_month
             spent_pct = this_month_spent / current_month_limit_display if current_month_limit_display > 0 else 0
             pace_delta = spent_pct - elapsed_pct
             st.progress(min(max(spent_pct, 0.0), 1.0))
-            st.write(f"Spent: **{format_money(this_month_spent, display_currency)}**")
-            st.write(f"Month progress: **{elapsed_pct * 100:.1f}%**")
-            st.write(f"Budget used: **{spent_pct * 100:.1f}%**")
+            st.write(f"{l("Spent", "Витрачено", "Ausgegeben")}: **{format_money(this_month_spent, display_currency)}**")
+            st.write(f"{l("Month progress", "Прогрес місяця", "Monatsfortschritt")}: **{elapsed_pct * 100:.1f}%**")
+            st.write(f"{l("Budget used", "Використано бюджету", "Budget genutzt")}: **{spent_pct * 100:.1f}%**")
             if pace_delta > 0.08:
-                st.warning("You are spending faster than the month is passing.")
+                st.warning(l("You are spending faster than the month is passing.", "Ти витрачаєш швидше, ніж минає місяць.", "Du gibst schneller aus, als der Monat vergeht."))
             elif pace_delta < -0.08:
-                st.success("You are ahead of budget pace.")
+                st.success(l("You are ahead of budget pace.", "Ти випереджаєш план бюджету.", "Du liegst besser als dein Budgetplan."))
             else:
-                st.info("You are roughly on pace.")
+                st.info(l("You are roughly on pace.", "Ти приблизно в межах плану.", "Du liegst ungefähr im Plan."))
             days_left = pd.Timestamp.today().days_in_month - date.today().day
             suggested_daily = budget_left / max(days_left, 1)
-            st.caption(f"Suggested daily cap for the rest of the month: {format_money(suggested_daily, display_currency)}")
+            st.caption(f"{l("Suggested daily cap for the rest of the month", "Рекомендований денний ліміт до кінця місяця", "Empfohlenes Tageslimit für den Rest des Monats")}: {format_money(suggested_daily, display_currency)}")
         else:
-            show_empty("Set a monthly budget to unlock budget pacing.")
+            show_empty(l("Set a monthly budget to unlock budget pacing.", "Задай місячний бюджет, щоб активувати темп бюджету.", "Lege ein Monatsbudget fest, um den Budgetverlauf zu sehen."))
         end_section()
     with right2:
-        section("Live FX widget", "Reference rates used for display conversion.")
+        section(l("Live FX widget", "Віджет курсу валют", "Live-Wechselkurse"), l("Reference rates used for display conversion.", "Довідкові курси для конвертації відображення.", "Referenzkurse für die Anzeigekonvertierung."))
         eur_rates = get_rates_map("EUR")
         usd_rates = get_rates_map("USD")
         fx_df = pd.DataFrame([
@@ -1119,16 +1123,16 @@ if page == t("dashboard"):
         end_section()
 
     insight_box = generate_smart_insights(expense_df, income_df, savings_df, current_month_limit_display, display_currency)
-    with st.expander("Smart insights", expanded=True):
+    with st.expander(l("Smart insights", "Розумні інсайти", "Smarte Insights"), expanded=True):
         for item in insight_box:
             st.write(f"- {item}")
 
     low, high = st.columns(2)
     with low:
-        section("Recent expenses", "Last 12 items in the filtered range.")
+        section(l("Recent expenses", "Останні витрати", "Letzte Ausgaben"), l("Last 12 items in the filtered range.", "Останні 12 записів у вибраному фільтрі.", "Letzte 12 Einträge im aktuellen Filter."))
         recent = filtered_df.sort_values("date", ascending=False).head(12)
         if recent.empty:
-            show_empty("No expenses in the selected range.")
+            show_empty(l("No expenses in the selected range.", "У вибраному діапазоні немає витрат.", "Keine Ausgaben im ausgewählten Bereich."))
         else:
             for _, row in recent.iterrows():
                 badge = f'<span class="badge" style="background:{CATEGORY_COLORS.get(row["category"], CATEGORY_COLORS["Other"])}">{row["category"]}</span>'
@@ -1140,9 +1144,9 @@ if page == t("dashboard"):
                 )
         end_section()
     with high:
-        section("Savings goals", "Quick progress summary.")
+        section(l("Savings goals", "Цілі заощаджень", "Sparziele"), l("Quick progress summary.", "Короткий підсумок прогресу.", "Kurze Fortschrittsübersicht."))
         if savings_df.empty:
-            show_empty("No savings goals yet.")
+            show_empty(l("No savings goals yet.", "Цілей заощаджень ще немає.", "Noch keine Sparziele vorhanden."))
         else:
             for _, row in savings_df.iterrows():
                 progress = savings_progress(row["saved"], row["target"])
@@ -1156,7 +1160,7 @@ if page == t("dashboard"):
 # =========================================================
 
 elif page == t("quick_add"):
-    section("Quick Add", "Paste a short sentence, preview the parsed entry, then save it.")
+    section(l("Quick Add", "Швидке додавання", "Schnell hinzufügen"), l("Paste a short sentence, preview the parsed entry, then save it.", "Встав коротке речення, переглянь розбір і збережи.", "Füge einen kurzen Satz ein, prüfe die Erkennung und speichere dann."))
     quick_text = st.text_input(
         "Quick entry",
         value=st.session_state.smart_note,
@@ -1179,7 +1183,7 @@ elif page == t("quick_add"):
         manual_category = st.selectbox("Adjust category", category_options, index=default_index)
         note = st.text_input("Note / merchant", value=str(preview["note"]))
         subscription = st.checkbox("Recurring monthly subscription", value=bool(preview["subscription"]), disabled=preview["tx_type"] == "income")
-        if st.button("Save quick entry", type="primary", use_container_width=True):
+        if st.button(l("Save quick entry", "Зберегти швидкий запис", "Schnelleingabe speichern"), type="primary", use_container_width=True):
             add_transaction(
                 user_id,
                 preview["date"],
@@ -1190,14 +1194,14 @@ elif page == t("quick_add"):
                 note,
                 1 if subscription else 0,
             )
-            st.success("Quick entry saved.")
+            st.success(l("Quick entry saved.", "Швидкий запис збережено.", "Schnelleingabe gespeichert."))
             st.session_state.smart_note = ""
             rerun()
     elif quick_text:
         st.warning(preview["error"])
     end_section()
 
-    section("Why this helps", "Useful for mobile, quick logging, and chat-style input.")
+    section(l("Why this helps", "Чому це корисно", "Warum das hilft"), l("Useful for mobile, quick logging, and chat-style input.", "Зручно для телефону, швидкого внесення і вводу як у чаті.", "Nützlich für Handy, schnelle Erfassung und chatartigen Input."))
     st.write("The parser detects date, amount, currency, subscription hints, and suggests a category from the note.")
     end_section()
 
@@ -1207,7 +1211,7 @@ elif page == t("quick_add"):
 # =========================================================
 
 elif page == t("add_expense"):
-    section("Add transaction", "Manual form for both expenses and income.")
+    section(l("Add transaction", "Додати транзакцію", "Transaktion hinzufügen"), l("Manual form for both expenses and income.", "Ручна форма для витрат і доходів.", "Manuelles Formular für Ausgaben und Einnahmen."))
     col1, col2 = st.columns(2)
     with col1:
         tx_type = st.selectbox("Transaction type", ["expense", "income"], format_func=lambda x: x.title())
@@ -1223,9 +1227,9 @@ elif page == t("add_expense"):
 
     if note:
         st.caption(f"Suggested category from note: {suggested_category}")
-    if st.button("Save transaction", use_container_width=True):
+    if st.button(l("Save transaction", "Зберегти транзакцію", "Transaktion speichern"), use_container_width=True):
         add_transaction(user_id, expense_date, amount, category, currency, tx_type, note, 1 if is_subscription else 0)
-        st.success("Transaction added.")
+        st.success(l("Transaction added.", "Транзакцію додано.", "Transaktion hinzugefügt."))
         rerun()
     end_section()
 
@@ -1235,9 +1239,9 @@ elif page == t("add_expense"):
 # =========================================================
 
 elif page == t("manage_expenses"):
-    section("Manage expenses", "Search, edit, delete, and inspect duplicates.")
+    section(l("Manage expenses", "Керування транзакціями", "Transaktionen verwalten"), l("Search, edit, delete, and inspect duplicates.", "Пошук, редагування, видалення і перевірка дублікатів.", "Suchen, bearbeiten, löschen und Duplikate prüfen."))
     if filtered_df.empty:
-        show_empty("No matching expenses.")
+        show_empty(l("No matching expenses.", "Немає відповідних витрат.", "Keine passenden Ausgaben."))
     else:
         managed = filtered_df.copy().sort_values("date", ascending=False)
         managed["label"] = (
@@ -1266,23 +1270,23 @@ elif page == t("manage_expenses"):
         b1, b2 = st.columns(2)
         if b1.button("Save changes", use_container_width=True):
             update_transaction(user_id, int(row["id"]), edit_date, edit_original_amount, edit_currency, edit_category, edit_note, edit_subscription, edit_type)
-            st.success("Expense updated.")
+            st.success(l("Expense updated.", "Транзакцію оновлено.", "Transaktion aktualisiert."))
             rerun()
         if b2.button("Delete expense", use_container_width=True):
             delete_expense(user_id, int(row["id"]))
-            st.success("Expense deleted.")
+            st.success(l("Expense deleted.", "Транзакцію видалено.", "Transaktion gelöscht."))
             rerun()
 
         st.divider()
-        st.write("**Filtered table**")
+        st.write(f"**{l("Filtered table", "Відфільтрована таблиця", "Gefilterte Tabelle")}**")
         table = managed[["date_only", "type", "category", "merchant", "note", "original_amount", "currency", "display_amount", "subscription"]].copy()
         st.dataframe(table, use_container_width=True, hide_index=True)
     end_section()
 
-    section("Duplicate finder", "Flags items with the same date, amount, category, and note.")
+    section(l("Duplicate finder", "Пошук дублікатів", "Duplikatfinder"), l("Flags items with the same date, amount, category, and note.", "Позначає записи з однаковими датою, сумою, категорією і нотаткою.", "Markiert Einträge mit gleichem Datum, Betrag, Kategorie und Notiz."))
     dups = detect_duplicates(filtered_df.assign(amount=filtered_df["amount"].abs()))
     if dups.empty:
-        show_empty("No duplicates detected in the current filter range.")
+        show_empty(l("No duplicates detected in the current filter range.", "У поточному фільтрі дублікатів не виявлено.", "Im aktuellen Filterbereich wurden keine Duplikate erkannt."))
     else:
         st.dataframe(
             dups[["date_only", "category", "note", "original_amount", "currency", "dup_count"]],
@@ -1297,10 +1301,10 @@ elif page == t("manage_expenses"):
 # =========================================================
 
 elif page == t("subscriptions"):
-    section("Recurring subscriptions", "Grouped view, annual cost estimate, and concentration risk.")
+    section(l("Recurring subscriptions", "Повторювані підписки", "Wiederkehrende Abos"), l("Grouped view, annual cost estimate, and concentration risk.", "Групування, оцінка річної вартості та ризик концентрації.", "Gruppierte Ansicht, jährliche Kostenschätzung und Konzentrationsrisiko."))
     subs = filtered_df[filtered_df["subscription"] == 1].copy()
     if subs.empty:
-        show_empty("No subscriptions in the selected range.")
+        show_empty(l("No subscriptions in the selected range.", "У вибраному діапазоні немає підписок.", "Keine Abos im ausgewählten Bereich."))
     else:
         grouped = subs.groupby(["category", "merchant", "currency"], as_index=False).agg(
             monthly_eur=("amount", "mean"),
@@ -1329,18 +1333,18 @@ elif page == t("subscriptions"):
 # =========================================================
 
 elif page == t("savings"):
-    section("Savings goals", "Create goals, add progress, and keep track of totals.")
+    section(l("Savings goals", "Цілі заощаджень", "Sparziele"), l("Create goals, add progress, and keep track of totals.", "Створюй цілі, додавай прогрес і відстежуй підсумки.", "Erstelle Ziele, füge Fortschritt hinzu und behalte Summen im Blick."))
     c1, c2, c3 = st.columns(3)
     with c1:
-        goal_name = st.text_input("Goal name")
+        goal_name = st.text_input(l("Goal name", "Назва цілі", "Zielname"))
     with c2:
-        goal_target = st.number_input("Target (€)", min_value=0.0, step=10.0)
+        goal_target = st.number_input(l("Target (€)", "Ціль (€)", "Ziel (€)"), min_value=0.0, step=10.0)
     with c3:
-        goal_saved = st.number_input("Already saved (€)", min_value=0.0, step=10.0)
+        goal_saved = st.number_input(l("Already saved (€)", "Вже відкладено (€)", "Bereits gespart (€)"), min_value=0.0, step=10.0)
 
-    if st.button("Add goal", use_container_width=True):
+    if st.button(l("Add goal", "Додати ціль", "Ziel hinzufügen"), use_container_width=True):
         if not goal_name.strip():
-            st.error("Goal name cannot be empty.")
+            st.error(l("Goal name cannot be empty.", "Назва цілі не може бути порожньою.", "Der Zielname darf nicht leer sein."))
         else:
             supabase.table("savings").insert({
                 "user_id": user_id,
@@ -1348,29 +1352,29 @@ elif page == t("savings"):
                 "target": float(goal_target),
                 "saved": float(goal_saved),
             }).execute()
-            st.success("Savings goal added.")
+            st.success(l("Savings goal added.", "Ціль заощаджень додано.", "Sparziel hinzugefügt."))
             rerun()
 
     if savings_df.empty:
-        show_empty("No savings goals yet.")
+        show_empty(l("No savings goals yet.", "Цілей заощаджень ще немає.", "Noch keine Sparziele vorhanden."))
     else:
         total_target = safe_float(savings_df["target"].sum())
         total_saved = safe_float(savings_df["saved"].sum())
-        st.caption(f"Combined progress: {format_money(total_saved, 'EUR')} / {format_money(total_target, 'EUR')}")
+        st.caption(f"{l("Combined progress", "Загальний прогрес", "Gesamtfortschritt")}: {format_money(total_saved, 'EUR')} / {format_money(total_target, 'EUR')}")
         for _, row in savings_df.iterrows():
             st.write(f"### {row['name']}")
             progress = savings_progress(row["saved"], row["target"])
             st.progress(progress)
-            st.caption(f"Saved: {format_money(row['saved'], 'EUR')} / Target: {format_money(row['target'], 'EUR')}")
-            add_more = st.number_input(f"Add money to {row['name']}", min_value=0.0, step=10.0, key=f"save_{row['id']}")
+            st.caption(f"{l("Saved", "Відкладено", "Gespart")}: {format_money(row['saved'], 'EUR')} / {l("Target", "Ціль", "Ziel")}: {format_money(row['target'], 'EUR')}")
+            add_more = st.number_input(f"{l("Add money to", "Додати гроші до", "Geld hinzufügen zu")} {row['name']}", min_value=0.0, step=10.0, key=f"save_{row['id']}")
             x1, x2 = st.columns(2)
-            if x1.button(f"Update {row['name']}", key=f"upd_{row['id']}", use_container_width=True):
+            if x1.button(f"{l("Update", "Оновити", "Aktualisieren")} {row['name']}", key=f"upd_{row['id']}", use_container_width=True):
                 supabase.table("savings").update({"saved": float(row["saved"]) + float(add_more)}).eq("id", int(row["id"])).eq("user_id", user_id).execute()
-                st.success("Savings updated.")
+                st.success(l("Savings updated.", "Заощадження оновлено.", "Sparziel aktualisiert."))
                 rerun()
-            if x2.button(f"Delete {row['name']}", key=f"del_{row['id']}", use_container_width=True):
+            if x2.button(f"{l("Delete", "Видалити", "Löschen")} {row['name']}", key=f"del_{row['id']}", use_container_width=True):
                 supabase.table("savings").delete().eq("id", int(row["id"])).eq("user_id", user_id).execute()
-                st.success("Goal deleted.")
+                st.success(l("Goal deleted.", "Ціль видалено.", "Ziel gelöscht."))
                 rerun()
             st.divider()
     end_section()
@@ -1381,40 +1385,40 @@ elif page == t("savings"):
 # =========================================================
 
 elif page == t("analytics"):
-    section("Advanced analytics", "Monthly trend, merchants, weekday patterns, anomalies, and Pareto view.")
+    section(l("Advanced analytics", "Розширена аналітика", "Erweiterte Analysen"), l("Monthly trend, merchants, weekday patterns, anomalies, and Pareto view.", "Місячний тренд, продавці, патерни по днях, аномалії та Pareto-аналіз.", "Monatstrend, Händler, Wochentagsmuster, Anomalien und Pareto-Ansicht."))
     analytics_df = expense_df.copy()
     if analytics_df.empty:
-        show_empty("No data for analytics in the current range.")
+        show_empty(l("No data for analytics in the current range.", "Немає даних для аналітики в цьому діапазоні.", "Keine Daten für Analysen im aktuellen Bereich."))
         end_section()
     else:
         c1, c2 = st.columns(2)
         with c1:
-            st.write("**Monthly trend**")
+            st.write(f"**{l("Monthly trend", "Місячний тренд", "Monatstrend")}**")
             monthly = monthly_series(analytics_df, "display_abs_amount")
             if monthly.empty:
-                show_empty("Not enough monthly data.")
+                show_empty(l("Not enough monthly data.", "Недостатньо місячних даних.", "Nicht genug Monatsdaten."))
             else:
                 st.line_chart(monthly.set_index("month"))
         with c2:
-            st.write("**Weekday pattern**")
+            st.write(f"**{l("Weekday pattern", "Патерн по днях тижня", "Wochentagsmuster")}**")
             weekdays = weekday_summary(analytics_df, "display_abs_amount")
             st.bar_chart(weekdays.set_index("weekday"))
         end_section()
 
         left, right = st.columns(2)
         with left:
-            section("Top merchants", "Based on the first meaningful words in the note.")
+            section(l("Top merchants", "Топ продавців", "Top-Händler"), l("Based on the first meaningful words in the note.", "На основі перших змістовних слів у нотатці.", "Basierend auf den ersten sinnvollen Wörtern in der Notiz."))
             merchants = merchant_summary(analytics_df, "display_abs_amount")
             if merchants.empty:
-                show_empty("No merchant-like notes found.")
+                show_empty(l("No merchant-like notes found.", "Схожих на продавця нотаток не знайдено.", "Keine händlerähnlichen Notizen gefunden."))
             else:
                 st.dataframe(merchants.head(15), use_container_width=True, hide_index=True)
             end_section()
         with right:
-            section("Anomaly detector", "Flags unusually high transactions within each category.")
+            section(l("Anomaly detector", "Пошук аномалій", "Anomalie-Erkennung"), l("Flags unusually high transactions within each category.", "Позначає незвично великі транзакції в межах кожної категорії.", "Markiert ungewöhnlich hohe Transaktionen innerhalb jeder Kategorie."))
             anomalies = detect_anomalies(analytics_df.assign(display_amount=analytics_df["display_abs_amount"]))
             if anomalies.empty:
-                show_empty("No strong anomalies detected.")
+                show_empty(l("No strong anomalies detected.", "Сильних аномалій не виявлено.", "Keine starken Anomalien erkannt."))
             else:
                 st.dataframe(
                     anomalies[["date_only", "category", "note", "display_amount", "currency"]].sort_values("display_amount", ascending=False),
@@ -1423,19 +1427,19 @@ elif page == t("analytics"):
                 )
             end_section()
 
-        section("Pareto view", "Shows how much your top categories explain total spending.")
+        section(l("Pareto view", "Pareto-аналіз", "Pareto-Ansicht"), l("Shows how much your top categories explain total spending.", "Показує, яку частку загальних витрат пояснюють топ-категорії.", "Zeigt, wie stark die Top-Kategorien die Gesamtausgaben erklären."))
         cat = category_summary(analytics_df, "display_abs_amount")
         if cat.empty:
-            show_empty("No data.")
+            show_empty(l("No data.", "Немає даних.", "Keine Daten."))
         else:
             pareto = cat.copy()
             pareto["cum_pct"] = (pareto["display_abs_amount"].cumsum() / pareto["display_abs_amount"].sum() * 100).round(1)
             st.dataframe(pareto, use_container_width=True, hide_index=True)
             hits_80 = pareto[pareto["cum_pct"] <= 80.0]
-            st.caption(f"{len(hits_80) if not hits_80.empty else 1} category(ies) explain roughly 80% of the selected spending.")
+            st.caption(f"{len(hits_80) if not hits_80.empty else 1} {l("category(ies) explain roughly 80% of the selected spending.", "категорій пояснюють приблизно 80% вибраних витрат.", "Kategorie(n) erklären ungefähr 80% der ausgewählten Ausgaben.")}")
         end_section()
 
-        section("Spending calendar", "Daily total view for the selected period.")
+        section(l("Spending calendar", "Календар витрат", "Ausgabenkalender"), l("Daily total view for the selected period.", "Щоденний підсумок за вибраний період.", "Tagesgesamtansicht für den ausgewählten Zeitraum."))
         cal = analytics_df.groupby("date_only", as_index=False)["display_abs_amount"].sum().sort_values("date_only")
         cal = cal.rename(columns={"display_abs_amount": "display_amount"})
         cal["weekday"] = pd.to_datetime(cal["date_only"]).dt.day_name()
@@ -1448,12 +1452,12 @@ elif page == t("analytics"):
 # =========================================================
 
 elif page == t("import_export"):
-    section("Export data", "Filtered or full downloads for backup and analysis.")
+    section(l("Export data", "Експорт даних", "Datenexport"), l("Filtered or full downloads for backup and analysis.", "Завантаження відфільтрованих або повних даних для резерву та аналізу.", "Gefilterte oder vollständige Downloads für Backup und Analyse."))
     export_df = filtered_df.copy()
     full_df = base_display_df.copy()
 
     if export_df.empty and full_df.empty:
-        show_empty("Nothing to export yet.")
+        show_empty(l("Nothing to export yet.", "Поки нічого експортувати.", "Noch nichts zu exportieren."))
     else:
         def to_excel_bytes(df: pd.DataFrame) -> bytes:
             output = io.BytesIO()
@@ -1463,27 +1467,27 @@ elif page == t("import_export"):
 
         c1, c2 = st.columns(2)
         with c1:
-            st.download_button("Download filtered CSV", export_df.to_csv(index=False).encode("utf-8"), "expenses_filtered.csv", "text/csv", use_container_width=True)
-            st.download_button("Download filtered Excel", to_excel_bytes(export_df), "expenses_filtered.xlsx", use_container_width=True)
+            st.download_button(l("Download filtered CSV", "Завантажити відфільтрований CSV", "Gefiltertes CSV herunterladen"), export_df.to_csv(index=False).encode("utf-8"), "expenses_filtered.csv", "text/csv", use_container_width=True)
+            st.download_button(l("Download filtered Excel", "Завантажити відфільтрований Excel", "Gefiltertes Excel herunterladen"), to_excel_bytes(export_df), "expenses_filtered.xlsx", use_container_width=True)
         with c2:
-            st.download_button("Download full CSV", full_df.to_csv(index=False).encode("utf-8"), "expenses_full.csv", "text/csv", use_container_width=True)
-            st.download_button("Download full Excel", to_excel_bytes(full_df), "expenses_full.xlsx", use_container_width=True)
+            st.download_button(l("Download full CSV", "Завантажити повний CSV", "Vollständiges CSV herunterladen"), full_df.to_csv(index=False).encode("utf-8"), "expenses_full.csv", "text/csv", use_container_width=True)
+            st.download_button(l("Download full Excel", "Завантажити повний Excel", "Vollständiges Excel herunterladen"), to_excel_bytes(full_df), "expenses_full.xlsx", use_container_width=True)
     end_section()
 
-    section("CSV template", "Use this format for bulk import. You can include type=income or expense.")
-    st.download_button("Download CSV template", csv_template(), "expense_import_template.csv", "text/csv", use_container_width=True)
+    section(l("CSV template", "CSV-шаблон", "CSV-Vorlage"), l("Use this format for bulk import. You can include type=income or expense.", "Використовуй цей формат для масового імпорту. Можна вказати type=income або expense.", "Nutze dieses Format für den Massenimport. Du kannst type=income oder expense angeben."))
+    st.download_button(l("Download CSV template", "Завантажити CSV-шаблон", "CSV-Vorlage herunterladen"), csv_template(), "expense_import_template.csv", "text/csv", use_container_width=True)
     end_section()
 
-    section("Bulk import", "Expected columns: date, amount, currency, category, note, subscription, type.")
-    uploaded = st.file_uploader("Upload CSV", type=["csv"])
+    section(l("Bulk import", "Масовий імпорт", "Massenimport"), l("Expected columns: date, amount, currency, category, note, subscription, type.", "Очікувані колонки: date, amount, currency, category, note, subscription, type.", "Erwartete Spalten: date, amount, currency, category, note, subscription, type."))
+    uploaded = st.file_uploader(l("Upload CSV", "Завантажити CSV", "CSV hochladen"), type=["csv"])
     if uploaded is not None:
         try:
             incoming = pd.read_csv(uploaded)
-            st.write("**Preview**")
+            st.write(f"**{l("Preview", "Попередній перегляд", "Vorschau")}**")
             st.dataframe(incoming.head(10), use_container_width=True, hide_index=True)
             required = {"date", "amount"}
             if not required.issubset(set(incoming.columns.str.lower())):
-                st.error("CSV must contain at least: date, amount")
+                st.error(l("CSV must contain at least: date, amount", "CSV має містити щонайменше: date, amount", "CSV muss mindestens enthalten: date, amount"))
             else:
                 incoming.columns = [c.lower().strip() for c in incoming.columns]
                 incoming["currency"] = incoming.get("currency", "EUR").fillna("EUR")
@@ -1507,12 +1511,12 @@ elif page == t("import_export"):
                         valid_rows.append((d, amt, cur, cat, note, sub, tx_type))
                     except Exception:
                         continue
-                st.caption(f"Valid rows ready to import: {len(valid_rows)}")
-                if valid_rows and st.button("Import rows", use_container_width=True, type="primary"):
+                st.caption(f"{l("Valid rows ready to import", "Валідних рядків готово до імпорту", "Gültige Zeilen bereit für den Import")}: {len(valid_rows)}")
+                if valid_rows and st.button(l("Import rows", "Імпортувати рядки", "Zeilen importieren"), use_container_width=True, type="primary"):
                     for d, amt, cur, cat, note, sub, tx_type in valid_rows:
                         add_transaction(user_id, d, amt, cat, cur, tx_type, note, sub)
-                    st.success(f"Imported {len(valid_rows)} row(s).")
+                    st.success(f"{l("Imported", "Імпортовано", "Importiert")} {len(valid_rows)} {l("row(s).", "рядків.", "Zeile(n).")}")
                     rerun()
         except Exception as exc:
-            st.error(f"Failed to read CSV: {exc}")
+            st.error(f"{l("Failed to read CSV", "Не вдалося прочитати CSV", "CSV konnte nicht gelesen werden")}: {exc}")
     end_section()
