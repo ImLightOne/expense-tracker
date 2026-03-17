@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import calendar
 import math
 import re
@@ -15,22 +16,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from supabase import Client, create_client
-from config import (
-    DEFAULT_CATEGORIES,
-    SUPPORTED_CURRENCIES,
-    INCOME_CATEGORIES,
-    CATEGORY_COLORS,
-    CATEGORY_TRANSLATIONS,
-    CATEGORY_KEYWORDS,
-    MERCHANT_CATEGORY_MAP_EXPENSE,
-    MERCHANT_CATEGORY_MAP_INCOME,
-    INCOME_KEYWORDS,
-    STOPWORDS,
-    STYLE,
-)
-from utils import safe_float, format_money, month_key, normalize_quick_text, tokenize_quick_text, detect_merchant_candidate, extract_merchant, infer_category, parse_quick_add
-from db import hash_password, check_password, get_user, register_user, get_rates_map, convert_to_eur, convert_from_eur, load_expenses, load_savings, get_monthly_limit, set_monthly_limit, execute_expense_write, add_transaction, add_expense, update_transaction, update_expense, delete_expense, upsert_monthly_subscriptions
-from analytics import enrich_expenses, apply_filters, get_month_options, monthly_series, category_summary, merchant_summary, weekday_summary, detect_duplicates, detect_anomalies, month_forecast, streak_metrics, get_date_range_presets, calculate_financial_health, generate_smart_insights, savings_progress, plot_pie, csv_template
+
 
 # =========================================================
 # CONFIG
@@ -45,6 +31,54 @@ st.set_page_config(page_title="Expense Tracker Pro+", page_icon="💸", layout="
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+os.environ.setdefault("SUPABASE_URL", SUPABASE_URL)
+os.environ.setdefault("SUPABASE_KEY", SUPABASE_KEY)
+
+from config import (
+    CATEGORY_COLORS,
+    CATEGORY_TRANSLATIONS,
+    DEFAULT_CATEGORIES,
+    INCOME_CATEGORIES,
+    STYLE,
+    SUPPORTED_CURRENCIES,
+)
+from utils import format_money, infer_category, parse_quick_add, safe_float
+from db import (
+    add_transaction,
+    check_password,
+    convert_to_eur,
+    delete_expense,
+    get_category_budgets,
+    get_monthly_limit,
+    get_rates_map as db_get_rates_map,
+    get_user,
+    load_expenses,
+    load_savings,
+    set_category_budget,
+    set_monthly_limit,
+    update_transaction,
+    upsert_monthly_subscriptions,
+    hash_password,
+)
+from analytics import (
+    apply_filters,
+    category_summary,
+    check_category_budgets,
+    csv_template,
+    detect_anomalies,
+    detect_duplicates,
+    enrich_expenses,
+    get_month_options,
+    merchant_summary,
+    monthly_series,
+    savings_progress,
+    streak_metrics,
+    weekday_summary,
+    month_forecast,
+    calculate_financial_health,
+)
+
+st.markdown(STYLE, unsafe_allow_html=True)
 
 
 # =========================================================
@@ -92,6 +126,94 @@ def require_login() -> int:
         st.info("Please log in first.")
         st.stop()
     return int(user_id)
+
+
+def register_user(username: str, password: str) -> tuple[bool, str]:
+    username = username.strip()
+    if len(username) < 3:
+        return False, l("Username must have at least 3 characters.", "Ім'я користувача має містити щонайменше 3 символи.", "Der Benutzername muss mindestens 3 Zeichen lang sein.")
+    if len(password) < 6:
+        return False, l("Password must have at least 6 characters.", "Пароль має містити щонайменше 6 символів.", "Das Passwort muss mindestens 6 Zeichen lang sein.")
+    exists = supabase.table("users").select("id").eq("username", username).limit(1).execute()
+    if exists.data:
+        return False, l("This username already exists.", "Такий користувач уже існує.", "Dieser Benutzername existiert bereits.")
+    supabase.table("users").insert({
+        "username": username,
+        "password_hash": hash_password(password).decode("utf-8"),
+    }).execute()
+    return True, l("Account created successfully.", "Акаунт успішно створено.", "Konto erfolgreich erstellt.")
+
+
+@st.cache_data(ttl=3600)
+def get_rates_map_cached(base: str = "EUR"):
+    return db_get_rates_map(base)
+
+
+def get_rates_map(base: str = "EUR"):
+    return get_rates_map_cached(base)
+
+
+def get_date_range_presets(min_date: date, max_date: date) -> Dict[str, Tuple[date, date]]:
+    today = date.today()
+    month_start = today.replace(day=1)
+    last_30 = max(min_date, today - timedelta(days=29))
+    last_90 = max(min_date, today - timedelta(days=89))
+    year_start = max(min_date, date(today.year, 1, 1))
+    return {
+        l("This month", "Цей місяць", "Dieser Monat"): (max(min_date, month_start), max_date),
+        l("Last 30 days", "Останні 30 днів", "Letzte 30 Tage"): (last_30, max_date),
+        l("Last 90 days", "Останні 90 днів", "Letzte 90 Tage"): (last_90, max_date),
+        l("Year to date", "Від початку року", "Jahr bis heute"): (year_start, max_date),
+        l("All time", "Увесь час", "Gesamter Zeitraum"): (min_date, max_date),
+    }
+
+
+def generate_smart_insights(expense_df: pd.DataFrame, income_df: pd.DataFrame, savings_df: pd.DataFrame, monthly_limit_display: Optional[float], display_currency: str) -> List[str]:
+    insights: List[str] = []
+    if expense_df.empty and income_df.empty:
+        return [l("Add a few transactions to unlock smart insights.", "Додай кілька транзакцій, щоб відкрити розумні інсайти.", "Füge einige Transaktionen hinzu, um smarte Insights freizuschalten.")]
+    if not expense_df.empty:
+        cat = category_summary(expense_df, "display_abs_amount")
+        if not cat.empty:
+            insights.append(
+                l(
+                    "Top expense category: {category} — {amount}",
+                    "Найбільша категорія витрат: {category} — {amount}",
+                    "Größte Ausgabenkategorie: {category} — {amount}",
+                ).format(category=lcat(cat.iloc[0]["category"]), amount=format_money(cat.iloc[0]["display_abs_amount"], display_currency))
+            )
+        monthly_spent = safe_float(expense_df[expense_df["month"] == pd.Timestamp.today().strftime("%Y-%m")]["display_abs_amount"].sum())
+        if monthly_limit_display and monthly_limit_display > 0:
+            usage = monthly_spent / monthly_limit_display
+            if usage > 1:
+                insights.append(l("You are over budget this month.", "Цього місяця ти перевищив бюджет.", "Diesen Monat liegst du über dem Budget."))
+            elif usage > 0.85:
+                insights.append(l("You are getting close to your monthly budget cap.", "Ти наближаєшся до місячного ліміту бюджету.", "Du näherst dich deinem monatlichen Budgetlimit."))
+    if not income_df.empty and not expense_df.empty:
+        net = safe_float(income_df["display_abs_amount"].sum()) - safe_float(expense_df["display_abs_amount"].sum())
+        insights.append(
+            l("Net balance for current filter: {amount}", "Чистий баланс для поточного фільтра: {amount}", "Nettosaldo für den aktuellen Filter: {amount}").format(amount=format_money(net, display_currency))
+        )
+    if not savings_df.empty:
+        total_saved = safe_float(savings_df["saved"].sum())
+        total_target = safe_float(savings_df["target"].sum())
+        if total_target > 0:
+            insights.append(
+                l("Savings goals progress: {pct:.1f}% complete.", "Прогрес цілей заощаджень: {pct:.1f}% виконано.", "Fortschritt der Sparziele: {pct:.1f}% erreicht.").format(pct=(total_saved / total_target) * 100)
+            )
+    return insights[:4]
+
+
+def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount") -> None:
+    if cat_df.empty:
+        show_empty(l("Not enough data.", "Недостатньо даних.", "Nicht genug Daten."))
+        return
+    colors = [CATEGORY_COLORS.get(c, CATEGORY_COLORS["Other"]) for c in cat_df["category"]]
+    fig, ax = plt.subplots(figsize=(5.5, 5.5))
+    ax.pie(cat_df[value_col], labels=cat_df["category"], autopct="%1.1f%%", startangle=90, colors=colors)
+    ax.axis("equal")
+    st.pyplot(fig)
+    plt.close(fig)
 
 
 # =========================================================
@@ -466,6 +588,45 @@ if page == t("dashboard"):
             set_monthly_limit(user_id, convert_to_eur(limit_input, display_currency))
             st.success(l("Budget saved.", "Бюджет збережено.", "Budget gespeichert."))
             rerun()
+
+        st.markdown("---")
+        st.subheader(l("Category budgets", "Бюджети по категоріях", "Kategorie-Budgets"))
+        category_budgets = get_category_budgets(user_id)
+        selected_budget_categories = st.multiselect(
+            l("Choose categories for monthly limits", "Оберіть категорії для місячних лімітів", "Kategorien für Monatslimits auswählen"),
+            options=DEFAULT_CATEGORIES,
+            default=[c for c in DEFAULT_CATEGORIES if c in category_budgets],
+            key="selected_budget_categories",
+            format_func=lcat,
+        )
+        category_budget_inputs = {}
+        for cat in selected_budget_categories:
+            current_limit_display = get_rates_map("EUR").get(display_currency, 1.0)
+            current_limit_display = category_budgets.get(cat, 0.0) * current_limit_display
+            category_budget_inputs[cat] = st.number_input(
+                f"{l('Monthly limit for', 'Місячний ліміт для', 'Monatslimit für')} {lcat(cat)} ({display_currency})",
+                min_value=0.0,
+                value=float(current_limit_display),
+                step=10.0,
+                key=f"cat_budget_{cat}",
+            )
+        if st.button(l("Save category budgets", "Зберегти бюджети категорій", "Kategorie-Budgets speichern"), use_container_width=True):
+            for cat in selected_budget_categories:
+                amount_display = category_budget_inputs[cat]
+                amount_eur = convert_to_eur(amount_display, display_currency)
+                set_category_budget(user_id, cat, amount_eur)
+            st.success(l("Category budgets saved.", "Бюджети категорій збережено.", "Kategorie-Budgets gespeichert."))
+            rerun()
+        budget_status = check_category_budgets(expense_df, get_category_budgets(user_id), display_currency)
+        if budget_status:
+            st.markdown(f"**{l('Category budget usage', 'Використання бюджетів категорій', 'Nutzung der Kategorie-Budgets')}**")
+            for row in budget_status:
+                st.write(
+                    f"**{lcat(row['category'])}** — {row['spent']:.2f} / {row['limit']:.2f} {display_currency} ({row['pct']:.1f}%)"
+                )
+                st.progress(min(row["pct"] / 100, 1.0))
+                if row["over"]:
+                    st.warning(l("This category is over budget.", "Ця категорія перевищила бюджет.", "Diese Kategorie liegt über dem Budget."))
         if current_month_limit_display:
             elapsed_pct = date.today().day / pd.Timestamp.today().days_in_month
             spent_pct = this_month_spent / current_month_limit_display if current_month_limit_display > 0 else 0
