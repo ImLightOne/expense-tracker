@@ -1,12 +1,11 @@
 from datetime import date, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
 from config import CATEGORY_COLORS
 from db import convert_from_eur
-from utils import extract_merchant, format_money, month_key, safe_float
+from utils import extract_merchant, month_key, safe_float
 
 
 def enrich_expenses(df: pd.DataFrame, display_currency: str) -> pd.DataFrame:
@@ -93,7 +92,7 @@ def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or len(df) < 8:
         return pd.DataFrame(columns=df.columns)
     frames = []
-    for category, g in df.groupby("category"):
+    for _, g in df.groupby("category"):
         if len(g) < 4:
             continue
         q1 = g["display_amount"].quantile(0.25)
@@ -114,7 +113,7 @@ def month_forecast(df: pd.DataFrame, today: Optional[date] = None) -> float:
         return 0.0
     spent = cur["display_amount"].sum()
     days_elapsed = today.day
-    days_in_month = (pd.Timestamp(today).days_in_month)
+    days_in_month = pd.Timestamp(today).days_in_month
     return spent / max(days_elapsed, 1) * days_in_month
 
 
@@ -149,22 +148,7 @@ def streak_metrics(df: pd.DataFrame) -> Tuple[int, int]:
     return no_spend_streak, max_no_spend
 
 
-def get_date_range_presets(min_date: date, max_date: date) -> Dict[str, Tuple[date, date]]:
-    today = date.today()
-    month_start = today.replace(day=1)
-    last_30 = max(min_date, today - timedelta(days=29))
-    last_90 = max(min_date, today - timedelta(days=89))
-    year_start = max(min_date, date(today.year, 1, 1))
-    return {
-        l("This month", "Цей місяць", "Dieser Monat"): (max(min_date, month_start), max_date),
-        l("Last 30 days", "Останні 30 днів", "Letzte 30 Tage"): (last_30, max_date),
-        l("Last 90 days", "Останні 90 днів", "Letzte 90 Tage"): (last_90, max_date),
-        l("Year to date", "Від початку року", "Jahr bis heute"): (year_start, max_date),
-        l("All time", "Увесь час", "Gesamter Zeitraum"): (min_date, max_date),
-    }
-
-
-def calculate_financial_health(expense_df: pd.DataFrame, savings_df: pd.DataFrame, monthly_limit_display: Optional[float]) -> Tuple[int, str, Dict[str, float]]:
+def calculate_financial_health(expense_df: pd.DataFrame, savings_df: pd.DataFrame, monthly_limit_display: Optional[float]):
     if expense_df.empty:
         return 50, "Add more data to get a reliable score.", {"budget": 50.0, "saving": 50.0, "consistency": 50.0}
     total_spent = safe_float(expense_df["display_abs_amount"].sum())
@@ -195,58 +179,10 @@ def calculate_financial_health(expense_df: pd.DataFrame, savings_df: pd.DataFram
     return int(score), label, {"budget": round(budget_score, 1), "saving": round(saving_score, 1), "consistency": round(consistency, 1)}
 
 
-def generate_smart_insights(expense_df: pd.DataFrame, income_df: pd.DataFrame, savings_df: pd.DataFrame, monthly_limit_display: Optional[float], display_currency: str) -> List[str]:
-    insights: List[str] = []
-    if expense_df.empty and income_df.empty:
-        return [l("Add a few transactions to unlock smart insights.", "Додай кілька транзакцій, щоб відкрити розумні інсайти.", "Füge einige Transaktionen hinzu, um smarte Insights freizuschalten.")]
-    if not expense_df.empty:
-        cat = category_summary(expense_df, "display_abs_amount")
-        if not cat.empty:
-            insights.append(
-                l(
-                    "Top expense category: {category} — {amount}",
-                    "Найбільша категорія витрат: {category} — {amount}",
-                    "Größte Ausgabenkategorie: {category} — {amount}",
-                ).format(category=lcat(cat.iloc[0]["category"]), amount=format_money(cat.iloc[0]["display_abs_amount"], display_currency))
-            )
-        monthly_spent = safe_float(expense_df[expense_df["month"] == month_key(date.today())]["display_abs_amount"].sum())
-        if monthly_limit_display and monthly_limit_display > 0:
-            usage = monthly_spent / monthly_limit_display
-            if usage > 1:
-                insights.append(l("You are over budget this month.", "Цього місяця ти перевищив бюджет.", "Diesen Monat liegst du über dem Budget."))
-            elif usage > 0.85:
-                insights.append(l("You are getting close to your monthly budget cap.", "Ти наближаєшся до місячного ліміту бюджету.", "Du näherst dich deinem monatlichen Budgetlimit."))
-    if not income_df.empty and not expense_df.empty:
-        net = safe_float(income_df["display_abs_amount"].sum()) - safe_float(expense_df["display_abs_amount"].sum())
-        insights.append(
-            l("Net balance for current filter: {amount}", "Чистий баланс для поточного фільтра: {amount}", "Nettosaldo für den aktuellen Filter: {amount}").format(amount=format_money(net, display_currency))
-        )
-    if not savings_df.empty:
-        total_saved = safe_float(savings_df["saved"].sum())
-        total_target = safe_float(savings_df["target"].sum())
-        if total_target > 0:
-            insights.append(
-                l("Savings goals progress: {pct:.1f}% complete.", "Прогрес цілей заощаджень: {pct:.1f}% виконано.", "Fortschritt der Sparziele: {pct:.1f}% erreicht.").format(pct=(total_saved / total_target) * 100)
-            )
-    return insights[:4]
-
-
 def savings_progress(saved: float, target: float) -> float:
     if target <= 0:
         return 0.0
     return max(0.0, min(saved / target, 1.0))
-
-
-def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount") -> None:
-    if cat_df.empty:
-        show_empty(l("Not enough data.", "Недостатньо даних.", "Nicht genug Daten."))
-        return
-    colors = [CATEGORY_COLORS.get(c, CATEGORY_COLORS["Other"]) for c in cat_df["category"]]
-    fig, ax = plt.subplots(figsize=(5.5, 5.5))
-    ax.pie(cat_df[value_col], labels=cat_df["category"], autopct="%1.1f%%", startangle=90, colors=colors)
-    ax.axis("equal")
-    st.pyplot(fig)
-    plt.close(fig)
 
 
 def csv_template() -> bytes:
@@ -255,3 +191,34 @@ def csv_template() -> bytes:
         {"date": date.today().isoformat(), "amount": 2500.00, "currency": "EUR", "category": "Salary", "note": "Monthly salary", "subscription": 0, "type": "income"},
     ])
     return template.to_csv(index=False).encode("utf-8")
+
+
+def check_category_budgets(expense_df, category_budgets: dict, display_currency: str) -> list[dict]:
+    if expense_df.empty or not category_budgets:
+        return []
+
+    current_month = month_key(date.today())
+    cur = expense_df[
+        (expense_df["month"] == current_month) & (expense_df["type"] == "expense")
+    ].copy()
+
+    if cur.empty:
+        return []
+
+    out = []
+    for category, limit_eur in category_budgets.items():
+        spent_eur = safe_float(
+            cur[cur["category"] == category]["amount"].abs().sum()
+        )
+        limit_display = convert_from_eur(limit_eur, display_currency)
+        spent_display = convert_from_eur(spent_eur, display_currency)
+        pct = (spent_display / limit_display * 100) if limit_display > 0 else 0.0
+        out.append({
+            "category": category,
+            "spent": round(spent_display, 2),
+            "limit": round(limit_display, 2),
+            "pct": round(pct, 1),
+            "over": spent_display > limit_display if limit_display > 0 else False,
+        })
+
+    return sorted(out, key=lambda x: x["pct"], reverse=True)
