@@ -13,15 +13,6 @@ from config import (
 )
 
 
-class _NoOpStreamlit:
-    @staticmethod
-    def warning(*args, **kwargs):
-        pass
-
-
-st = _NoOpStreamlit()
-
-
 def safe_float(value, default: float = 0.0) -> float:
     try:
         if value is None or value == "":
@@ -42,9 +33,9 @@ def month_key(dt: pd.Timestamp | date | datetime) -> str:
 def normalize_quick_text(text: str) -> str:
     text = (text or "").strip().lower()
     text = text.replace("’", "'").replace("`", "'")
-    text = re.sub(r"\d{4}-\d{2}-\d{2}", " ", text)
-    text = re.sub(r"\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?", " ", text)
-    text = re.sub(r"(?:eur|usd|uah|€|\$|₴)", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", text)
+    text = re.sub(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", " ", text)
+    text = re.sub(r"\b(?:eur|usd|uah|€|\$|₴)\b", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"(?<!\d)\d+[\.,]?\d{0,2}(?!\d)", " ", text)
     text = re.sub(r"[^\w\s&+-]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -193,8 +184,8 @@ def parse_quick_add(text: str, history_df: Optional[pd.DataFrame] = None) -> Dic
     if date_match:
         try:
             result["date"] = datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
-        except Exception as e:
-            st.warning(f"Skipped: {e}")
+        except Exception:
+            pass
     else:
         short_match = re.search(r"\b(\d{1,2}[./-]\d{1,2})(?:[./-](\d{2,4}))?\b", raw)
         if short_match:
@@ -207,20 +198,26 @@ def parse_quick_add(text: str, history_df: Optional[pd.DataFrame] = None) -> Dic
                 year += 2000
             try:
                 result["date"] = date(year, month, day)
-            except Exception as e:
-                st.warning(f"Skipped: {e}")
+            except Exception:
+                pass
 
-    amount_match = re.search(r"(?<!\d)(\d+[\.,]?\d{0,2})(?!\d)", raw)
+    amount_search_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", raw)
+    amount_match = re.search(r"(?<!\d)(\d{1,3}(?:[,\s]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?!\d)", amount_search_text)
     if not amount_match:
         return result
-    amount = safe_float(amount_match.group(1).replace(",", "."), None)
+    amount_token = amount_match.group(1).replace(" ", "")
+    if "," in amount_token and "." in amount_token:
+        amount_token = amount_token.replace(",", "")
+    else:
+        amount_token = amount_token.replace(",", ".")
+    amount = safe_float(amount_token, None)
     if amount is None:
         return result
     result["amount"] = amount
 
-    currency_match = re.search(r"\b(EUR|USD|UAH|€|\$|₴)\b", raw.upper())
+    currency_match = re.search(r"(EUR|USD|UAH|€|\$|₴)", raw, flags=re.IGNORECASE)
     if currency_match:
-        token = currency_match.group(1)
+        token = currency_match.group(1).upper()
         result["currency"] = {"€": "EUR", "$": "USD", "₴": "UAH"}.get(token, token)
 
     lowered = raw.lower()
