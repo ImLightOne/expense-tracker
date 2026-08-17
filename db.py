@@ -5,7 +5,6 @@ import os
 from datetime import date, timedelta
 from typing import Dict, Optional
 
-import bcrypt
 import pandas as pd
 import requests
 from supabase import Client, create_client
@@ -17,17 +16,44 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 
-def hash_password(password: str) -> bytes:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+# =========================================================
+# AUTH (Supabase Auth) — thin wrappers so callers never touch
+# supabase.auth directly. Any AuthApiError raised here is left
+# for the caller to interpret/translate.
+# =========================================================
+
+def sign_up(email: str, password: str, username: str):
+    return supabase.auth.sign_up({
+        "email": email,
+        "password": password,
+        "options": {"data": {"username": username}},
+    })
 
 
-def check_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+def sign_in(email: str, password: str):
+    return supabase.auth.sign_in_with_password({"email": email, "password": password})
 
 
-def get_user(username: str):
-    res = supabase.table("users").select("*").eq("username", username.strip()).limit(1).execute()
-    return res.data[0] if res.data else None
+def sign_out() -> None:
+    supabase.auth.sign_out()
+
+
+def restore_auth_session(access_token: str, refresh_token: str):
+    return supabase.auth.set_session(access_token, refresh_token)
+
+
+def request_password_reset(email: str) -> None:
+    supabase.auth.reset_password_email(email)
+
+
+def username_exists(username: str) -> bool:
+    res = supabase.table("profiles").select("id").eq("username", username).limit(1).execute()
+    return bool(res.data)
+
+
+def get_profile_username(user_id: str) -> Optional[str]:
+    res = supabase.table("profiles").select("username").eq("id", user_id).limit(1).execute()
+    return res.data[0]["username"] if res.data else None
 
 
 def get_rates_map(base: str = "EUR") -> Dict[str, float]:
@@ -90,7 +116,7 @@ def convert_from_eur(amount_eur: float, out_currency: str) -> float:
     return round(safe_float(amount_eur) * safe_float(get_rates_map("EUR").get(out_currency, 1.0), 1.0), 2)
 
 
-def load_expenses(user_id: int) -> pd.DataFrame:
+def load_expenses(user_id: str) -> pd.DataFrame:
     res = supabase.table("expenses").select("*").eq("user_id", user_id).order("date", desc=True).execute()
     df = pd.DataFrame(res.data)
     if df.empty:
@@ -110,7 +136,7 @@ def load_expenses(user_id: int) -> pd.DataFrame:
     return df.sort_values(["date", "id"], ascending=[False, False]).reset_index(drop=True)
 
 
-def load_savings(user_id: int) -> pd.DataFrame:
+def load_savings(user_id: str) -> pd.DataFrame:
     res = supabase.table("savings").select("*").eq("user_id", user_id).order("id", desc=True).execute()
     df = pd.DataFrame(res.data)
     if df.empty:
@@ -120,12 +146,12 @@ def load_savings(user_id: int) -> pd.DataFrame:
     return df
 
 
-def get_monthly_limit(user_id: int) -> Optional[float]:
+def get_monthly_limit(user_id: str) -> Optional[float]:
     res = supabase.table("budgets").select("monthly_limit").eq("user_id", user_id).limit(1).execute()
     return float(res.data[0]["monthly_limit"]) if res.data else None
 
 
-def set_monthly_limit(user_id: int, amount_eur: float) -> None:
+def set_monthly_limit(user_id: str, amount_eur: float) -> None:
     exists = supabase.table("budgets").select("user_id").eq("user_id", user_id).limit(1).execute()
     payload = {"user_id": user_id, "monthly_limit": float(amount_eur)}
     if exists.data:
@@ -134,11 +160,11 @@ def set_monthly_limit(user_id: int, amount_eur: float) -> None:
         supabase.table("budgets").insert(payload).execute()
 
 
-def get_category_budgets(user_id: int) -> dict[str, float]:
+def get_category_budgets(user_id: str) -> dict[str, float]:
     res = (
         supabase.table("category_budgets")
         .select("category, monthly_limit")
-        .eq("user_id", int(user_id))
+        .eq("user_id", user_id)
         .execute()
     )
     return {
@@ -148,9 +174,9 @@ def get_category_budgets(user_id: int) -> dict[str, float]:
     }
 
 
-def set_category_budget(user_id: int, category: str, amount_eur: float) -> None:
+def set_category_budget(user_id: str, category: str, amount_eur: float) -> None:
     payload = {
-        "user_id": int(user_id),
+        "user_id": user_id,
         "category": str(category),
         "monthly_limit": float(amount_eur),
     }
@@ -169,7 +195,7 @@ def execute_expense_write(write_fn, payload: Dict[str, object]) -> None:
         write_fn(fallback_payload)
 
 
-def add_transaction(user_id: int, expense_date: date, amount: float, category: str, currency: str, tx_type: str = "expense", note: str = "", subscription: int = 0) -> None:
+def add_transaction(user_id: str, expense_date: date, amount: float, category: str, currency: str, tx_type: str = "expense", note: str = "", subscription: int = 0) -> None:
     signed_amount = abs(amount) * (-1 if tx_type == "income" else 1)
     amount_eur = convert_to_eur(signed_amount, currency)
     payload = {
@@ -185,11 +211,11 @@ def add_transaction(user_id: int, expense_date: date, amount: float, category: s
     execute_expense_write(lambda p: supabase.table("expenses").insert(p).execute(), payload)
 
 
-def add_expense(user_id: int, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0) -> None:
+def add_expense(user_id: str, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0) -> None:
     add_transaction(user_id, expense_date, amount, category, currency, "expense", note, subscription)
 
 
-def update_transaction(user_id: int, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
+def update_transaction(user_id: str, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
                    category: str, note: str, subscription: bool, tx_type: str = "expense") -> None:
     signed_amount = abs(original_amount) * (-1 if tx_type == "income" else 1)
     amount_eur = convert_to_eur(signed_amount, original_currency)
@@ -203,21 +229,21 @@ def update_transaction(user_id: int, expense_id: int, expense_date: date, origin
         "type": tx_type,
     }
     execute_expense_write(
-        lambda p: supabase.table("expenses").update(p).eq("id", int(expense_id)).eq("user_id", int(user_id)).execute(),
+        lambda p: supabase.table("expenses").update(p).eq("id", int(expense_id)).eq("user_id", user_id).execute(),
         payload,
     )
 
 
-def update_expense(user_id: int, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
+def update_expense(user_id: str, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
                    category: str, note: str, subscription: bool) -> None:
     update_transaction(user_id, expense_id, expense_date, original_amount, original_currency, category, note, subscription, "expense")
 
 
-def delete_expense(user_id: int, expense_id: int) -> None:
-    supabase.table("expenses").delete().eq("id", int(expense_id)).eq("user_id", int(user_id)).execute()
+def delete_expense(user_id: str, expense_id: int) -> None:
+    supabase.table("expenses").delete().eq("id", int(expense_id)).eq("user_id", user_id).execute()
 
 
-def upsert_monthly_subscriptions(user_id: int) -> int:
+def upsert_monthly_subscriptions(user_id: str) -> int:
     df = load_expenses(user_id)
     if df.empty:
         return 0
