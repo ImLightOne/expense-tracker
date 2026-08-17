@@ -46,6 +46,21 @@ def request_password_reset(email: str) -> None:
     supabase.auth.reset_password_email(email)
 
 
+def verify_otp(token_hash: str, otp_type: str):
+    """Exchange the token_hash from an invite/recovery/signup email link for a session.
+
+    Uses the token_hash flow (query-param based) rather than Supabase's default
+    implicit flow (which puts tokens after a `#` in the URL) because Streamlit's
+    Python backend never receives anything after `#` — only `st.query_params`,
+    which is populated from the `?...` part of the URL, is reachable server-side.
+    """
+    return supabase.auth.verify_otp({"token_hash": token_hash, "type": otp_type})
+
+
+def update_password(new_password: str):
+    return supabase.auth.update_user({"password": new_password})
+
+
 def username_exists(username: str) -> bool:
     res = supabase.table("profiles").select("id").eq("username", username).limit(1).execute()
     return bool(res.data)
