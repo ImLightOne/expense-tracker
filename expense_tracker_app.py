@@ -60,9 +60,11 @@ from db import (
     sign_in,
     sign_out,
     sign_up,
+    update_password,
     update_transaction,
     upsert_monthly_subscriptions,
     username_exists,
+    verify_otp,
 )
 from analytics import (
     apply_filters,
@@ -231,8 +233,77 @@ def logout_user() -> None:
         sign_out()
     except Exception:
         pass
-    for key in ("access_token", "refresh_token", "user_id", "username"):
+    for key in ("access_token", "refresh_token", "user_id", "username", "must_set_password"):
         st.session_state.pop(key, None)
+
+
+def consume_email_link() -> None:
+    """Handle an invite/recovery/signup-confirmation link the user just clicked.
+
+    Supabase's default email templates redirect with the session tokens after a
+    `#`, which never reaches Streamlit's Python side. Our email templates are
+    configured (in the Supabase dashboard) to link to `{{ .SiteURL }}?token_hash=
+    {{ .TokenHash }}&type={{ .Type }}` instead, which Streamlit *can* read via
+    `st.query_params`. We exchange that token_hash for a real session here.
+    """
+    token_hash = st.query_params.get("token_hash")
+    otp_type = st.query_params.get("type")
+    if not token_hash or not otp_type or st.session_state.get("user_id"):
+        return
+    try:
+        res = verify_otp(token_hash, otp_type)
+    except Exception:
+        res = None
+    st.query_params.clear()
+    if res and res.session and res.user:
+        st.session_state.access_token = res.session.access_token
+        st.session_state.refresh_token = res.session.refresh_token
+        st.session_state.user_id = res.user.id
+        st.session_state.username = get_profile_username(res.user.id) or res.user.email
+        # Invite/recovery links prove the email is theirs but don't carry a
+        # password — make them set one before they can use the app.
+        st.session_state.must_set_password = otp_type in ("invite", "recovery")
+    else:
+        st.session_state["email_link_error"] = l(
+            "This link is invalid or has expired. Please request a new one.",
+            "Це посилання недійсне або застаріло. Запроси нове.",
+            "Dieser Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an.",
+        )
+
+
+def render_set_password_screen() -> None:
+    st.title(l("Set your password", "Встанови пароль", "Passwort festlegen"))
+    st.caption(l(
+        "Choose a password to finish setting up your account.",
+        "Обери пароль, щоб завершити налаштування акаунта.",
+        "Wähle ein Passwort, um dein Konto einzurichten.",
+    ))
+    new_password = st.text_input(t("password"), type="password", key="set_pw_new")
+    confirm_password = st.text_input(
+        l("Confirm password", "Підтвердь пароль", "Passwort bestätigen"), type="password", key="set_pw_confirm"
+    )
+    if st.button(l("Save password", "Зберегти пароль", "Passwort speichern"), use_container_width=True):
+        if len(new_password) < 8 or not (any(c.isalpha() for c in new_password) and any(c.isdigit() for c in new_password)):
+            st.error(l(
+                "Password must be at least 8 characters and include a letter and a number.",
+                "Пароль має містити щонайменше 8 символів, літеру та цифру.",
+                "Das Passwort muss mindestens 8 Zeichen sowie einen Buchstaben und eine Zahl enthalten.",
+            ))
+        elif new_password != confirm_password:
+            st.error(l("Passwords don't match.", "Паролі не збігаються.", "Passwörter stimmen nicht überein."))
+        else:
+            try:
+                update_password(new_password)
+            except Exception:
+                st.error(l("Could not save the password. Please try again.", "Не вдалося зберегти пароль. Спробуй ще раз.", "Passwort konnte nicht gespeichert werden. Bitte versuche es erneut."))
+            else:
+                st.session_state.must_set_password = False
+                st.success(l("Password set. You're all set.", "Пароль встановлено.", "Passwort festgelegt."))
+                rerun()
+    if st.button(l("Cancel and log out", "Скасувати й вийти", "Abbrechen und abmelden")):
+        logout_user()
+        rerun()
+    st.stop()
 
 
 @st.cache_data(ttl=3600)
@@ -508,6 +579,7 @@ for key, default in {
     "username": None,
     "access_token": None,
     "refresh_token": None,
+    "must_set_password": False,
     "smart_note": "",
     "smart_preview": None,
     "lang": "en",
@@ -515,6 +587,14 @@ for key, default in {
     st.session_state.setdefault(key, default)
 
 restore_session()
+consume_email_link()
+
+email_link_error = st.session_state.pop("email_link_error", None)
+if email_link_error:
+    st.error(email_link_error)
+
+if st.session_state.get("user_id") and st.session_state.get("must_set_password"):
+    render_set_password_screen()
 
 st.sidebar.markdown(t("sidebar_title"))
 st.sidebar.caption(t("sidebar_caption"))
