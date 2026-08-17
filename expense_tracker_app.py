@@ -10,7 +10,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-import bcrypt
 import matplotlib.pyplot as plt
 import pandas as pd
 import requests
@@ -45,21 +44,25 @@ from config import (
 from utils import format_money, infer_category, month_key, parse_quick_add, safe_float
 from db import (
     add_transaction,
-    check_password,
     convert_from_eur,
     convert_to_eur,
     delete_expense,
     get_category_budgets,
     get_monthly_limit,
+    get_profile_username,
     get_rates_map as db_get_rates_map,
-    get_user,
     load_expenses,
     load_savings,
+    request_password_reset as db_request_password_reset,
+    restore_auth_session,
     set_category_budget,
     set_monthly_limit,
+    sign_in,
+    sign_out,
+    sign_up,
     update_transaction,
     upsert_monthly_subscriptions,
-    hash_password,
+    username_exists,
 )
 from analytics import (
     apply_filters,
@@ -121,28 +124,115 @@ def show_empty(text: str) -> None:
 # AUTH / DATA ACCESS
 # =========================================================
 
-def require_login() -> int:
+def require_login() -> str:
     user_id = st.session_state.get("user_id")
     if not user_id:
         st.info("Please log in first.")
         st.stop()
-    return int(user_id)
+    return str(user_id)
 
 
-def register_user(username: str, password: str) -> tuple[bool, str]:
+def restore_session() -> None:
+    """Re-attach a previously established Supabase Auth session on this rerun.
+
+    Streamlit re-executes the whole script on every interaction, so the
+    module-level `supabase` client starts anonymous each time. If we already
+    signed in during an earlier run, replay the saved tokens so RLS-protected
+    queries keep carrying the user's identity instead of silently returning
+    zero rows.
+    """
+    if st.session_state.get("user_id"):
+        return
+    access_token = st.session_state.get("access_token")
+    refresh_token = st.session_state.get("refresh_token")
+    if not access_token or not refresh_token:
+        return
+    try:
+        res = restore_auth_session(access_token, refresh_token)
+    except Exception:
+        res = None
+    if res and res.session and res.user:
+        st.session_state.access_token = res.session.access_token
+        st.session_state.refresh_token = res.session.refresh_token
+        st.session_state.user_id = res.user.id
+        st.session_state.username = get_profile_username(res.user.id) or res.user.email
+    else:
+        for key in ("access_token", "refresh_token", "user_id", "username"):
+            st.session_state.pop(key, None)
+
+
+def login_user(email: str, password: str) -> tuple[bool, str]:
+    email = email.strip()
+    if not email or not password:
+        return False, t("invalid_credentials")
+    try:
+        res = sign_in(email, password)
+    except Exception:
+        return False, t("invalid_credentials")
+    if not res.session or not res.user:
+        return False, t("invalid_credentials")
+    st.session_state.access_token = res.session.access_token
+    st.session_state.refresh_token = res.session.refresh_token
+    st.session_state.user_id = res.user.id
+    st.session_state.username = get_profile_username(res.user.id) or res.user.email
+    return True, ""
+
+
+def register_user(username: str, email: str, password: str) -> tuple[bool, str]:
     username = username.strip()
+    email = email.strip()
     if len(username) < 3:
         return False, l("Username must have at least 3 characters.", "Ім'я користувача має містити щонайменше 3 символи.", "Der Benutzername muss mindestens 3 Zeichen lang sein.")
-    if len(password) < 6:
-        return False, l("Password must have at least 6 characters.", "Пароль має містити щонайменше 6 символів.", "Das Passwort muss mindestens 6 Zeichen lang sein.")
-    exists = supabase.table("users").select("id").eq("username", username).limit(1).execute()
-    if exists.data:
+    if not email or "@" not in email:
+        return False, l("Enter a valid email address.", "Введи коректну email-адресу.", "Gib eine gültige E-Mail-Adresse ein.")
+    if len(password) < 8 or not (any(c.isalpha() for c in password) and any(c.isdigit() for c in password)):
+        return False, l("Password must be at least 8 characters and include a letter and a number.", "Пароль має містити щонайменше 8 символів, літеру та цифру.", "Das Passwort muss mindestens 8 Zeichen sowie einen Buchstaben und eine Zahl enthalten.")
+    if username_exists(username):
         return False, l("This username already exists.", "Такий користувач уже існує.", "Dieser Benutzername existiert bereits.")
-    supabase.table("users").insert({
-        "username": username,
-        "password_hash": hash_password(password).decode("utf-8"),
-    }).execute()
-    return True, l("Account created successfully.", "Акаунт успішно створено.", "Konto erfolgreich erstellt.")
+    try:
+        res = sign_up(email, password, username)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "already registered" in message or "already exists" in message or "user_repeated_signup" in message:
+            return False, l("This email is already registered.", "Ця email-адреса вже зареєстрована.", "Diese E-Mail-Adresse ist bereits registriert.")
+        return False, l("Could not create account. Please try again.", "Не вдалося створити акаунт. Спробуй ще раз.", "Konto konnte nicht erstellt werden. Bitte versuche es erneut.")
+    if res.session and res.user:
+        st.session_state.access_token = res.session.access_token
+        st.session_state.refresh_token = res.session.refresh_token
+        st.session_state.user_id = res.user.id
+        st.session_state.username = username
+        return True, l("Account created successfully.", "Акаунт успішно створено.", "Konto erfolgreich erstellt.")
+    return True, l(
+        "Account created. Check your email to confirm it before logging in.",
+        "Акаунт створено. Перевір пошту й підтверди його перед входом.",
+        "Konto erstellt. Bitte bestätige es per E-Mail, bevor du dich anmeldest.",
+    )
+
+
+def request_password_reset(email: str) -> tuple[bool, str]:
+    email = email.strip()
+    if not email or "@" not in email:
+        return False, l("Enter a valid email address.", "Введи коректну email-адресу.", "Gib eine gültige E-Mail-Adresse ein.")
+    try:
+        db_request_password_reset(email)
+    except Exception:
+        pass
+    # Deliberately generic regardless of outcome, so this can't be used to
+    # probe which email addresses have an account.
+    return True, l(
+        "If that email is registered, a reset link is on its way.",
+        "Якщо ця пошта зареєстрована, лист із посиланням уже надіслано.",
+        "Falls diese E-Mail registriert ist, ist ein Reset-Link unterwegs.",
+    )
+
+
+def logout_user() -> None:
+    try:
+        sign_out()
+    except Exception:
+        pass
+    for key in ("access_token", "refresh_token", "user_id", "username"):
+        st.session_state.pop(key, None)
 
 
 @st.cache_data(ttl=3600)
@@ -232,10 +322,13 @@ TRANSLATIONS = {
         "mode": "Mode",
         "login": "Login",
         "register": "Register",
+        "forgot_password": "Forgot password",
         "username": "Username",
+        "email": "Email",
         "password": "Password",
         "create_account": "Create account",
-        "invalid_credentials": "Invalid username or password.",
+        "send_reset_link": "Send reset link",
+        "invalid_credentials": "Invalid email or password.",
         "welcome_text": "Track spending, subscriptions, savings, imports, anomalies, and trends in one place.",
         "fast_capture": "Fast capture",
         "quick_add": "Quick Add",
@@ -283,10 +376,13 @@ TRANSLATIONS = {
         "mode": "Режим",
         "login": "Увійти",
         "register": "Реєстрація",
+        "forgot_password": "Забув пароль",
         "username": "Ім'я користувача",
+        "email": "Email",
         "password": "Пароль",
         "create_account": "Створити акаунт",
-        "invalid_credentials": "Неправильне ім'я користувача або пароль.",
+        "send_reset_link": "Надіслати посилання",
+        "invalid_credentials": "Неправильний email або пароль.",
         "welcome_text": "Відстежуй витрати, підписки, заощадження, імпорт, аномалії та тренди в одному місці.",
         "fast_capture": "Швидке внесення",
         "quick_add": "Швидке додавання",
@@ -334,10 +430,13 @@ TRANSLATIONS = {
         "mode": "Modus",
         "login": "Anmelden",
         "register": "Registrieren",
+        "forgot_password": "Passwort vergessen",
         "username": "Benutzername",
+        "email": "E-Mail",
         "password": "Passwort",
         "create_account": "Konto erstellen",
-        "invalid_credentials": "Ungültiger Benutzername oder Passwort.",
+        "send_reset_link": "Link senden",
+        "invalid_credentials": "Ungültige E-Mail-Adresse oder ungültiges Passwort.",
         "welcome_text": "Verfolge Ausgaben, Abos, Sparziele, Importe, Anomalien und Trends an einem Ort.",
         "fast_capture": "Schnelle Erfassung",
         "quick_add": "Schnell hinzufügen",
@@ -407,11 +506,15 @@ def ltx(tx_type: str) -> str:
 for key, default in {
     "user_id": None,
     "username": None,
+    "access_token": None,
+    "refresh_token": None,
     "smart_note": "",
     "smart_preview": None,
     "lang": "en",
 }.items():
     st.session_state.setdefault(key, default)
+
+restore_session()
 
 st.sidebar.markdown(t("sidebar_title"))
 st.sidebar.caption(t("sidebar_caption"))
@@ -420,25 +523,30 @@ st.session_state.lang = st.sidebar.selectbox(t("language"), ["en", "uk", "de"], 
 if st.session_state.user_id:
     st.sidebar.success(t("logged_in_as", username=st.session_state.username))
     if st.sidebar.button(t("log_out"), use_container_width=True):
-        st.session_state.user_id = None
-        st.session_state.username = None
+        logout_user()
         rerun()
 else:
-    mode = st.sidebar.radio(t("mode"), [t("login"), t("register")])
-    username = st.sidebar.text_input(t("username"))
-    password = st.sidebar.text_input(t("password"), type="password")
-    if mode == t("login"):
+    mode = st.sidebar.radio(t("mode"), [t("login"), t("register"), t("forgot_password")])
+    if mode == t("forgot_password"):
+        reset_email = st.sidebar.text_input(t("email"))
+        if st.sidebar.button(t("send_reset_link"), use_container_width=True):
+            ok, message = request_password_reset(reset_email)
+            (st.sidebar.success if ok else st.sidebar.error)(message)
+    elif mode == t("login"):
+        login_email = st.sidebar.text_input(t("email"))
+        login_password = st.sidebar.text_input(t("password"), type="password")
         if st.sidebar.button(t("login"), use_container_width=True):
-            user = get_user(username)
-            if user and check_password(password, user["password_hash"]):
-                st.session_state.user_id = int(user["id"])
-                st.session_state.username = user["username"]
+            ok, message = login_user(login_email, login_password)
+            if ok:
                 rerun()
             else:
-                st.sidebar.error(t("invalid_credentials"))
+                st.sidebar.error(message)
     else:
+        reg_username = st.sidebar.text_input(t("username"))
+        reg_email = st.sidebar.text_input(t("email"))
+        reg_password = st.sidebar.text_input(t("password"), type="password")
         if st.sidebar.button(t("create_account"), use_container_width=True):
-            ok, message = register_user(username, password)
+            ok, message = register_user(reg_username, reg_email, reg_password)
             (st.sidebar.success if ok else st.sidebar.error)(message)
 
 if not st.session_state.user_id:
@@ -456,7 +564,7 @@ if not st.session_state.user_id:
 user_id = require_login()
 created_subs = upsert_monthly_subscriptions(user_id)
 if created_subs:
-    st.toast(f"{created_subs} {l("recurring subscription(s) added for this month.", "повторюваних підписок додано за цей місяць.", "wiederkehrende(s) Abonnement(s) für diesen Monat hinzugefügt.")}")
+    st.toast(f"{created_subs} {l('recurring subscription(s) added for this month.', 'повторюваних підписок додано за цей місяць.', 'wiederkehrende(s) Abonnement(s) für diesen Monat hinzugefügt.')}")
 
 st.sidebar.divider()
 display_currency = st.sidebar.selectbox(t("display_currency"), SUPPORTED_CURRENCIES, index=0)
@@ -472,7 +580,7 @@ default_start = max(min_date, date.today().replace(day=1))
 default_end = max_date
 
 with st.sidebar:
-    st.markdown(f"### {t("global_filters")}")
+    st.markdown(f"### {t('global_filters')}")
     presets = get_date_range_presets(min_date, max_date)
     preset_name = st.selectbox(t("quick_range"), list(presets.keys()), index=0)
     preset_start, preset_end = presets[preset_name]
@@ -501,7 +609,7 @@ PAGES = [
 page = st.sidebar.radio(t("navigation"), PAGES)
 
 st.title(t("app_title"))
-st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} {t("filtered_transactions")}")
+st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} {t('filtered_transactions')}")
 
 
 # =========================================================
@@ -530,9 +638,9 @@ if page == t("dashboard"):
     with c1:
         metric_card(l("Total spent", "Усього витрачено", "Gesamtausgaben"), format_money(total_spent, display_currency), f"{tx_count} transactions")
     with c2:
-        metric_card(l("Total income", "Усього доходів", "Gesamteinnahmen"), format_money(total_income, display_currency), f"{l("Net", "Баланс", "Netto")}: {format_money(net_balance, display_currency)}")
+        metric_card(l("Total income", "Усього доходів", "Gesamteinnahmen"), format_money(total_income, display_currency), f"{l('Net', 'Баланс', 'Netto')}: {format_money(net_balance, display_currency)}")
     with c3:
-        metric_card(l("Average expense", "Середня витрата", "Durchschnittliche Ausgabe"), format_money(avg_tx, display_currency), f"{l("Month forecast", "Прогноз на місяць", "Monatsprognose")}: {format_money(forecast_value, display_currency)}")
+        metric_card(l("Average expense", "Середня витрата", "Durchschnittliche Ausgabe"), format_money(avg_tx, display_currency), f"{l('Month forecast', 'Прогноз на місяць', 'Monatsprognose')}: {format_money(forecast_value, display_currency)}")
     with c4:
         if current_month_limit_display is not None:
             metric_card(l("Budget left", "Залишок бюджету", "Verbleibendes Budget"), format_money(budget_left, display_currency), f"Budget: {format_money(current_month_limit_display, display_currency)}")
@@ -580,7 +688,7 @@ if page == t("dashboard"):
     with left2:
         section(l("Budget pacing", "Темп витрат бюджету", "Budgetverlauf"), l("Compares this month’s spending with month progress.", "Порівнює витрати цього місяця з прогресом місяця.", "Vergleicht die Ausgaben dieses Monats mit dem Monatsfortschritt."))
         limit_input = st.number_input(
-            f"{l("Monthly budget", "Місячний бюджет", "Monatsbudget")} ({display_currency})",
+            f"{l('Monthly budget', 'Місячний бюджет', 'Monatsbudget')} ({display_currency})",
             min_value=0.0,
             value=safe_float(current_month_limit_display),
             step=10.0,
@@ -633,9 +741,9 @@ if page == t("dashboard"):
             spent_pct = this_month_spent / current_month_limit_display if current_month_limit_display > 0 else 0
             pace_delta = spent_pct - elapsed_pct
             st.progress(min(max(spent_pct, 0.0), 1.0))
-            st.write(f"{l("Spent", "Витрачено", "Ausgegeben")}: **{format_money(this_month_spent, display_currency)}**")
-            st.write(f"{l("Month progress", "Прогрес місяця", "Monatsfortschritt")}: **{elapsed_pct * 100:.1f}%**")
-            st.write(f"{l("Budget used", "Використано бюджету", "Budget genutzt")}: **{spent_pct * 100:.1f}%**")
+            st.write(f"{l('Spent', 'Витрачено', 'Ausgegeben')}: **{format_money(this_month_spent, display_currency)}**")
+            st.write(f"{l('Month progress', 'Прогрес місяця', 'Monatsfortschritt')}: **{elapsed_pct * 100:.1f}%**")
+            st.write(f"{l('Budget used', 'Використано бюджету', 'Budget genutzt')}: **{spent_pct * 100:.1f}%**")
             if pace_delta > 0.08:
                 st.warning(l("You are spending faster than the month is passing.", "Ти витрачаєш швидше, ніж минає місяць.", "Du gibst schneller aus, als der Monat vergeht."))
             elif pace_delta < -0.08:
@@ -644,7 +752,7 @@ if page == t("dashboard"):
                 st.info(l("You are roughly on pace.", "Ти приблизно в межах плану.", "Du liegst ungefähr im Plan."))
             days_left = pd.Timestamp.today().days_in_month - date.today().day
             suggested_daily = budget_left / max(days_left, 1)
-            st.caption(f"{l("Suggested daily cap for the rest of the month", "Рекомендований денний ліміт до кінця місяця", "Empfohlenes Tageslimit für den Rest des Monats")}: {format_money(suggested_daily, display_currency)}")
+            st.caption(f"{l('Suggested daily cap for the rest of the month', 'Рекомендований денний ліміт до кінця місяця', 'Empfohlenes Tageslimit für den Rest des Monats')}: {format_money(suggested_daily, display_currency)}")
         else:
             show_empty(l("Set a monthly budget to unlock budget pacing.", "Задай місячний бюджет, щоб активувати темп бюджету.", "Lege ein Monatsbudget fest, um den Budgetverlauf zu sehen."))
         end_section()
@@ -774,7 +882,7 @@ elif page == t("add_expense"):
         is_subscription = st.checkbox(l("Recurring monthly subscription", "Щомісячна повторювана підписка", "Monatlich wiederkehrendes Abo"), disabled=tx_type == "income")
 
     if note:
-        st.caption(fl("Suggested category from note: {suggested_category}", "Запропонована категорія з нотатки: {suggested_category}", "Vorgeschlagene Kategorie aus der Notiz: {suggested_category}"))
+        st.caption(l("Suggested category from note: {suggested_category}", "Запропонована категорія з нотатки: {suggested_category}", "Vorgeschlagene Kategorie aus der Notiz: {suggested_category}").format(suggested_category=suggested_category))
     if st.button(l("Save transaction", "Зберегти транзакцію", "Transaktion speichern"), use_container_width=True):
         add_transaction(user_id, expense_date, amount, category, currency, tx_type, note, 1 if is_subscription else 0)
         st.success(l("Transaction added.", "Транзакцію додано.", "Transaktion hinzugefügt."))
@@ -826,7 +934,7 @@ elif page == t("manage_expenses"):
             rerun()
 
         st.divider()
-        st.write(f"**{l("Filtered table", "Відфільтрована таблиця", "Gefilterte Tabelle")}**")
+        st.write(f"**{l('Filtered table', 'Відфільтрована таблиця', 'Gefilterte Tabelle')}**")
         table = managed[["date_only", "type", "category", "merchant", "note", "original_amount", "currency", "display_amount", "subscription"]].copy()
         table["type"] = table["type"].map(ltx)
         table["category"] = table["category"].map(lcat)
@@ -910,19 +1018,19 @@ elif page == t("savings"):
     else:
         total_target = safe_float(savings_df["target"].sum())
         total_saved = safe_float(savings_df["saved"].sum())
-        st.caption(f"{l("Combined progress", "Загальний прогрес", "Gesamtfortschritt")}: {format_money(total_saved, 'EUR')} / {format_money(total_target, 'EUR')}")
+        st.caption(f"{l('Combined progress', 'Загальний прогрес', 'Gesamtfortschritt')}: {format_money(total_saved, 'EUR')} / {format_money(total_target, 'EUR')}")
         for _, row in savings_df.iterrows():
             st.write(f"### {row['name']}")
             progress = savings_progress(row["saved"], row["target"])
             st.progress(progress)
-            st.caption(f"{l("Saved", "Відкладено", "Gespart")}: {format_money(row['saved'], 'EUR')} / {l("Target", "Ціль", "Ziel")}: {format_money(row['target'], 'EUR')}")
-            add_more = st.number_input(f"{l("Add money to", "Додати гроші до", "Geld hinzufügen zu")} {row['name']}", min_value=0.0, step=10.0, key=f"save_{row['id']}")
+            st.caption(f"{l('Saved', 'Відкладено', 'Gespart')}: {format_money(row['saved'], 'EUR')} / {l('Target', 'Ціль', 'Ziel')}: {format_money(row['target'], 'EUR')}")
+            add_more = st.number_input(f"{l('Add money to', 'Додати гроші до', 'Geld hinzufügen zu')} {row['name']}", min_value=0.0, step=10.0, key=f"save_{row['id']}")
             x1, x2 = st.columns(2)
-            if x1.button(f"{l("Update", "Оновити", "Aktualisieren")} {row['name']}", key=f"upd_{row['id']}", use_container_width=True):
+            if x1.button(f"{l('Update', 'Оновити', 'Aktualisieren')} {row['name']}", key=f"upd_{row['id']}", use_container_width=True):
                 supabase.table("savings").update({"saved": float(row["saved"]) + float(add_more)}).eq("id", int(row["id"])).eq("user_id", user_id).execute()
                 st.success(l("Savings updated.", "Заощадження оновлено.", "Sparziel aktualisiert."))
                 rerun()
-            if x2.button(f"{l("Delete", "Видалити", "Löschen")} {row['name']}", key=f"del_{row['id']}", use_container_width=True):
+            if x2.button(f"{l('Delete', 'Видалити', 'Löschen')} {row['name']}", key=f"del_{row['id']}", use_container_width=True):
                 supabase.table("savings").delete().eq("id", int(row["id"])).eq("user_id", user_id).execute()
                 st.success(l("Goal deleted.", "Ціль видалено.", "Ziel gelöscht."))
                 rerun()
@@ -943,14 +1051,14 @@ elif page == t("analytics"):
     else:
         c1, c2 = st.columns(2)
         with c1:
-            st.write(f"**{l("Monthly trend", "Місячний тренд", "Monatstrend")}**")
+            st.write(f"**{l('Monthly trend', 'Місячний тренд', 'Monatstrend')}**")
             monthly = monthly_series(analytics_df, "display_abs_amount")
             if monthly.empty:
                 show_empty(l("Not enough monthly data.", "Недостатньо місячних даних.", "Nicht genug Monatsdaten."))
             else:
                 st.line_chart(monthly.set_index("month"))
         with c2:
-            st.write(f"**{l("Weekday pattern", "Патерн по днях тижня", "Wochentagsmuster")}**")
+            st.write(f"**{l('Weekday pattern', 'Патерн по днях тижня', 'Wochentagsmuster')}**")
             weekdays = weekday_summary(analytics_df, "display_abs_amount")
             st.bar_chart(weekdays.set_index("weekday"))
         end_section()
@@ -1038,7 +1146,7 @@ elif page == t("import_export"):
     if uploaded is not None:
         try:
             incoming = pd.read_csv(uploaded)
-            st.write(f"**{l("Preview", "Попередній перегляд", "Vorschau")}**")
+            st.write(f"**{l('Preview', 'Попередній перегляд', 'Vorschau')}**")
             st.dataframe(incoming.head(10), use_container_width=True, hide_index=True)
             required = {"date", "amount"}
             if not required.issubset(set(incoming.columns.str.lower())):
@@ -1067,12 +1175,12 @@ elif page == t("import_export"):
                     except Exception as e:
                         st.warning(f"Skipped: {e}")
                         continue
-                st.caption(f"{l("Valid rows ready to import", "Валідних рядків готово до імпорту", "Gültige Zeilen bereit für den Import")}: {len(valid_rows)}")
+                st.caption(f"{l('Valid rows ready to import', 'Валідних рядків готово до імпорту', 'Gültige Zeilen bereit für den Import')}: {len(valid_rows)}")
                 if valid_rows and st.button(l("Import rows", "Імпортувати рядки", "Zeilen importieren"), use_container_width=True, type="primary"):
                     for d, amt, cur, cat, note, sub, tx_type in valid_rows:
                         add_transaction(user_id, d, amt, cat, cur, tx_type, note, sub)
-                    st.success(f"{l("Imported", "Імпортовано", "Importiert")} {len(valid_rows)} {l("row(s).", "рядків.", "Zeile(n).")}")
+                    st.success(f"{l('Imported', 'Імпортовано', 'Importiert')} {len(valid_rows)} {l('row(s).', 'рядків.', 'Zeile(n).')}")
                     rerun()
         except Exception as exc:
-            st.error(f"{l("Failed to read CSV", "Не вдалося прочитати CSV", "CSV konnte nicht gelesen werden")}: {exc}")
+            st.error(f"{l('Failed to read CSV', 'Не вдалося прочитати CSV', 'CSV konnte nicht gelesen werden')}: {exc}")
     end_section()
