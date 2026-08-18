@@ -7,9 +7,11 @@ from utils import (
     detect_merchant_candidate,
     format_money,
     infer_category,
+    monthly_equivalent,
     month_key,
     normalize_quick_text,
     parse_quick_add,
+    recurrence_period_bounds,
     safe_float,
     tokenize_quick_text,
 )
@@ -212,3 +214,65 @@ def test_parse_quick_add_comma_decimal_amount():
     result = parse_quick_add("12,50 EUR taxi")
     assert result["ok"] is True
     assert result["amount"] == 12.50
+
+
+# ---------------------------------------------------------------------------
+# recurrence_period_bounds (Wave 3: flexible recurring-transaction periods)
+# ---------------------------------------------------------------------------
+
+def test_recurrence_period_bounds_monthly_matches_calendar_month():
+    # 2026-02-15 is a Sunday in a 28-day February.
+    start, end = recurrence_period_bounds(date(2026, 2, 15), "monthly")
+    assert start == date(2026, 2, 1)
+    assert end == date(2026, 3, 1)
+
+
+def test_recurrence_period_bounds_monthly_handles_leap_february():
+    start, end = recurrence_period_bounds(date(2028, 2, 10), "monthly")
+    assert start == date(2028, 2, 1)
+    assert end == date(2028, 3, 1)
+
+
+def test_recurrence_period_bounds_weekly_starts_on_monday():
+    # 2026-03-19 is a Thursday.
+    start, end = recurrence_period_bounds(date(2026, 3, 19), "weekly")
+    assert start == date(2026, 3, 16)  # the preceding Monday
+    assert end == date(2026, 3, 23)
+
+
+def test_recurrence_period_bounds_yearly_spans_calendar_year():
+    start, end = recurrence_period_bounds(date(2026, 7, 4), "yearly")
+    assert start == date(2026, 1, 1)
+    assert end == date(2027, 1, 1)
+
+
+def test_recurrence_period_bounds_unrecognized_value_falls_back_to_monthly():
+    start, end = recurrence_period_bounds(date(2026, 5, 5), "biweekly")
+    assert start == date(2026, 5, 1)
+    assert end == date(2026, 6, 1)
+
+
+def test_recurrence_period_bounds_defaults_to_monthly_when_omitted():
+    start, end = recurrence_period_bounds(date(2026, 5, 5))
+    assert start == date(2026, 5, 1)
+    assert end == date(2026, 6, 1)
+
+
+# ---------------------------------------------------------------------------
+# monthly_equivalent
+# ---------------------------------------------------------------------------
+
+def test_monthly_equivalent_monthly_is_unchanged():
+    assert monthly_equivalent(100.0, "monthly") == 100.0
+
+
+def test_monthly_equivalent_weekly_uses_average_weeks_per_month():
+    assert monthly_equivalent(10.0, "weekly") == pytest.approx(10.0 * 52 / 12)
+
+
+def test_monthly_equivalent_yearly_divides_by_twelve():
+    assert monthly_equivalent(120.0, "yearly") == pytest.approx(10.0)
+
+
+def test_monthly_equivalent_defaults_to_monthly_when_omitted():
+    assert monthly_equivalent(50.0) == 50.0

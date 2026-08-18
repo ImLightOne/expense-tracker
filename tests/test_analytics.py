@@ -350,9 +350,10 @@ def test_savings_progress(saved, target, expected):
 def test_csv_template_has_expected_header():
     content = csv_template().decode("utf-8")
     header = content.splitlines()[0]
-    assert header == "date,amount,currency,category,note,subscription,type"
+    assert header == "date,amount,currency,category,note,subscription,recurrence,type"
     assert "expense" in content
     assert "income" in content
+    assert "yearly" in content
 
 
 # ---------------------------------------------------------------------------
