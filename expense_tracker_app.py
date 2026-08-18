@@ -188,14 +188,14 @@ st.title(t("app_title"))
 st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} {t('filtered_transactions')}")
 
 pages = [
-    st.Page(lambda v=dashboard: v.render(ctx), title=t("dashboard"), icon="📊", default=True),
-    st.Page(lambda v=quick_add: v.render(ctx), title=t("quick_add"), icon="⚡"),
-    st.Page(lambda v=add_expense: v.render(ctx), title=t("add_expense"), icon="➕"),
-    st.Page(lambda v=manage_expenses: v.render(ctx), title=t("manage_expenses"), icon="🗂️"),
-    st.Page(lambda v=subscriptions: v.render(ctx), title=t("subscriptions"), icon="🔁"),
-    st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon="💰"),
-    st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon="📈"),
-    st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon="📤"),
+    st.Page(lambda v=dashboard: v.render(ctx), title=t("dashboard"), icon="📊", url_path="dashboard", default=True),
+    st.Page(lambda v=quick_add: v.render(ctx), title=t("quick_add"), icon="⚡", url_path="quick-add"),
+    st.Page(lambda v=add_expense: v.render(ctx), title=t("add_expense"), icon="➕", url_path="add-expense"),
+    st.Page(lambda v=manage_expenses: v.render(ctx), title=t("manage_expenses"), icon="🗂️", url_path="manage-expenses"),
+    st.Page(lambda v=subscriptions: v.render(ctx), title=t("subscriptions"), icon="🔁", url_path="subscriptions"),
+    st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon="💰", url_path="savings"),
+    st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon="📈", url_path="analytics"),
+    st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon="📤", url_path="import-export"),
 ]
 navigation = st.navigation(pages, position="sidebar")
 st.sidebar.markdown(f"### {t('navigation')}")
