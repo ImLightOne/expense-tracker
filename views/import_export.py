@@ -7,7 +7,7 @@ import streamlit as st
 
 from analytics import csv_template, enrich_expenses
 from common import end_section, l, rerun, section, show_empty
-from config import DEFAULT_CATEGORIES, INCOME_CATEGORIES
+from config import RECURRENCE_OPTIONS
 from db import add_transaction, load_expenses
 from utils import infer_category, safe_float
 
@@ -17,6 +17,8 @@ def render(ctx: dict) -> None:
     display_currency = ctx["display_currency"]
     filtered_df = ctx["filtered_df"]
     base_display_df = ctx["base_display_df"]
+    expense_categories = ctx["expense_categories"]
+    income_categories = ctx["income_categories"]
 
     section(l("Export data", "Експорт даних", "Datenexport"), l("Filtered or full downloads for backup and analysis.", "Завантаження відфільтрованих або повних даних для резерву та аналізу.", "Gefilterte oder vollständige Downloads für Backup und Analyse."))
     export_df = filtered_df.copy()
@@ -52,7 +54,7 @@ def render(ctx: dict) -> None:
     st.download_button(l("Download CSV template", "Завантажити CSV-шаблон", "CSV-Vorlage herunterladen"), csv_template(), "expense_import_template.csv", "text/csv", use_container_width=True)
     end_section()
 
-    section(l("Bulk import", "Масовий імпорт", "Massenimport"), l("Expected columns: date, amount, currency, category, note, subscription, type.", "Очікувані колонки: date, amount, currency, category, note, subscription, type.", "Erwartete Spalten: date, amount, currency, category, note, subscription, type."))
+    section(l("Bulk import", "Масовий імпорт", "Massenimport"), l("Expected columns: date, amount, currency, category, note, subscription, recurrence, type.", "Очікувані колонки: date, amount, currency, category, note, subscription, recurrence, type.", "Erwartete Spalten: date, amount, currency, category, note, subscription, recurrence, type."))
     uploaded = st.file_uploader(l("Upload CSV", "Завантажити CSV", "CSV hochladen"), type=["csv"])
     if uploaded is not None:
         try:
@@ -68,6 +70,7 @@ def render(ctx: dict) -> None:
                 incoming["category"] = incoming.get("category", "Other").fillna("Other")
                 incoming["note"] = incoming.get("note", "").fillna("")
                 incoming["subscription"] = pd.to_numeric(incoming.get("subscription", 0), errors="coerce").fillna(0).astype(int)
+                incoming["recurrence"] = incoming.get("recurrence", "monthly").fillna("monthly").astype(str).str.lower()
                 incoming["type"] = incoming.get("type", "expense").fillna("expense").astype(str).str.lower()
                 valid_rows = []
                 for _, row in incoming.iterrows():
@@ -78,18 +81,20 @@ def render(ctx: dict) -> None:
                         cat = str(row.get("category", "Other"))
                         note = str(row.get("note", ""))
                         sub = int(row.get("subscription", 0))
+                        rec = str(row.get("recurrence", "monthly"))
+                        rec = rec if rec in RECURRENCE_OPTIONS else "monthly"
                         tx_type = "income" if str(row.get("type", "expense")).lower() == "income" else "expense"
-                        valid_categories = INCOME_CATEGORIES if tx_type == "income" else DEFAULT_CATEGORIES
+                        valid_categories = income_categories if tx_type == "income" else expense_categories
                         if cat not in valid_categories:
                             cat = infer_category(note, fallback="Other Income" if tx_type == "income" else "Other")["category"]
-                        valid_rows.append((d, amt, cur, cat, note, sub, tx_type))
+                        valid_rows.append((d, amt, cur, cat, note, sub, rec, tx_type))
                     except Exception as e:
                         st.warning(f"Skipped: {e}")
                         continue
                 st.caption(f"{l('Valid rows ready to import', 'Валідних рядків готово до імпорту', 'Gültige Zeilen bereit für den Import')}: {len(valid_rows)}")
                 if valid_rows and st.button(l("Import rows", "Імпортувати рядки", "Zeilen importieren"), use_container_width=True, type="primary"):
-                    for d, amt, cur, cat, note, sub, tx_type in valid_rows:
-                        add_transaction(user_id, d, amt, cat, cur, tx_type, note, sub)
+                    for d, amt, cur, cat, note, sub, rec, tx_type in valid_rows:
+                        add_transaction(user_id, d, amt, cat, cur, tx_type, note, sub, rec)
                     st.success(f"{l('Imported', 'Імпортовано', 'Importiert')} {len(valid_rows)} {l('row(s).', 'рядків.', 'Zeile(n).')}")
                     rerun()
         except Exception as exc:

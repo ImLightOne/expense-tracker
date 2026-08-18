@@ -7,7 +7,7 @@ import streamlit as st
 
 from analytics import calculate_financial_health, category_summary, check_category_budgets, month_forecast, savings_progress, streak_metrics
 from common import end_section, generate_smart_insights, get_rates_map, l, lcat, metric_card, plot_pie, rerun, section, show_empty, t
-from config import CATEGORY_COLORS, DEFAULT_CATEGORIES
+from config import CATEGORY_COLORS
 from db import convert_from_eur, convert_to_eur, get_category_budgets, get_monthly_limit, set_category_budget, set_monthly_limit
 from utils import format_money, month_key, safe_float
 
@@ -20,6 +20,7 @@ def render(ctx: dict) -> None:
     expense_df = ctx["expense_df"]
     income_df = ctx["income_df"]
     savings_df = ctx["savings_df"]
+    expense_categories = ctx["expense_categories"]
 
     total_spent = safe_float(expense_df["display_abs_amount"].sum())
     total_income = safe_float(income_df["display_abs_amount"].sum())
@@ -107,8 +108,8 @@ def render(ctx: dict) -> None:
         category_budgets = get_category_budgets(user_id)
         selected_budget_categories = st.multiselect(
             l("Choose categories for monthly limits", "Оберіть категорії для місячних лімітів", "Kategorien für Monatslimits auswählen"),
-            options=DEFAULT_CATEGORIES,
-            default=[c for c in DEFAULT_CATEGORIES if c in category_budgets],
+            options=expense_categories,
+            default=[c for c in expense_categories if c in category_budgets],
             key="selected_budget_categories",
             format_func=lcat,
         )

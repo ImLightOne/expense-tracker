@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from common import end_section, l, lcat, ltx, rerun, section
-from config import DEFAULT_CATEGORIES, INCOME_CATEGORIES
+from config import RECURRENCE_OPTIONS
+from common import end_section, l, lcat, lrec, ltx, rerun, section
 from db import add_transaction
 from utils import format_money, parse_quick_add
 
@@ -11,6 +11,8 @@ from utils import format_money, parse_quick_add
 def render(ctx: dict) -> None:
     user_id = ctx["user_id"]
     expense_df = ctx["expense_df"]
+    expense_categories = ctx["expense_categories"]
+    income_categories = ctx["income_categories"]
 
     section(l("Quick Add", "Швидке додавання", "Schnell hinzufügen"), l("Paste a short sentence, preview the parsed entry, then save it.", "Встав коротке речення, переглянь розбір і збережи.", "Füge einen kurzen Satz ein, prüfe die Erkennung und speichere dann."))
     quick_text = st.text_input(
@@ -40,11 +42,14 @@ def render(ctx: dict) -> None:
             f"{confidence_labels.get(str(preview.get('confidence', 'low')), str(preview.get('confidence', 'low')).title())}"
             + (f" · {l('Merchant guess', 'Ймовірний продавець', 'Vermuteter Händler')}: {preview.get('merchant_guess')}" if preview.get('merchant_guess') else "")
         )
-        category_options = INCOME_CATEGORIES if preview["tx_type"] == "income" else DEFAULT_CATEGORIES
+        category_options = income_categories if preview["tx_type"] == "income" else expense_categories
         default_index = category_options.index(preview["category"]) if preview["category"] in category_options else len(category_options)-1
         manual_category = st.selectbox(l("Adjust category", "Змінити категорію", "Kategorie anpassen"), category_options, index=default_index, format_func=lcat)
         note = st.text_input(l("Note / merchant", "Нотатка / продавець", "Notiz / Händler"), value=str(preview["note"]))
-        subscription = st.checkbox(l("Recurring monthly subscription", "Щомісячна повторювана підписка", "Monatlich wiederkehrendes Abo"), value=bool(preview["subscription"]), disabled=preview["tx_type"] == "income")
+        subscription = st.checkbox(l("Recurring subscription", "Повторювана підписка", "Wiederkehrendes Abo"), value=bool(preview["subscription"]), disabled=preview["tx_type"] == "income")
+        recurrence = "monthly"
+        if subscription:
+            recurrence = st.selectbox(l("Repeats", "Повторюється", "Wiederholung"), RECURRENCE_OPTIONS, index=RECURRENCE_OPTIONS.index("monthly"), format_func=lrec)
         if st.button(l("Save quick entry", "Зберегти швидкий запис", "Schnelleingabe speichern"), type="primary", use_container_width=True):
             add_transaction(
                 user_id,
@@ -55,6 +60,7 @@ def render(ctx: dict) -> None:
                 preview["tx_type"],
                 note,
                 1 if subscription else 0,
+                recurrence,
             )
             st.success(l("Quick entry saved.", "Швидкий запис збережено.", "Schnelleingabe gespeichert."))
             st.session_state.smart_note = ""
