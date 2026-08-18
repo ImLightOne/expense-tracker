@@ -1,6 +1,7 @@
+import calendar
 import re
-from datetime import date, datetime
-from typing import Dict, List, Optional
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -28,6 +29,43 @@ def format_money(value: float, currency: str = "EUR") -> str:
 
 def month_key(dt: pd.Timestamp | date | datetime) -> str:
     return pd.Timestamp(dt).strftime("%Y-%m")
+
+
+def recurrence_period_bounds(today: date, recurrence: str = "monthly") -> Tuple[date, date]:
+    """Return the [start, end) window of the current recurrence period.
+
+    Pure function (no DB access) so recurring-transaction bookkeeping can be
+    unit-tested without mocking Supabase. "monthly" reproduces the original
+    (pre-Wave-3) behavior exactly: a calendar month starting on day 1.
+    """
+    recurrence = (recurrence or "monthly").lower()
+    if recurrence == "weekly":
+        start = today - timedelta(days=today.weekday())  # Monday
+        end = start + timedelta(days=7)
+        return start, end
+    if recurrence == "yearly":
+        start = date(today.year, 1, 1)
+        end = date(today.year + 1, 1, 1)
+        return start, end
+    # "monthly" and any unrecognized value fall back to calendar-month bounds.
+    start = date(today.year, today.month, 1)
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    end = start + timedelta(days=days_in_month)
+    return start, end
+
+
+def monthly_equivalent(amount: float, recurrence: str = "monthly") -> float:
+    """Normalize a recurring amount to a monthly figure for totals/comparisons.
+
+    Weekly uses the average number of weeks per month (52 / 12) rather than a
+    flat 4, so annualized totals stay consistent with the yearly case.
+    """
+    recurrence = (recurrence or "monthly").lower()
+    if recurrence == "weekly":
+        return amount * (52.0 / 12.0)
+    if recurrence == "yearly":
+        return amount / 12.0
+    return amount
 
 
 def normalize_quick_text(text: str) -> str:

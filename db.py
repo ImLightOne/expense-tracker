@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import calendar
 import os
-from datetime import date, timedelta
-from typing import Dict, Optional
+from datetime import date
+from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
 from supabase import Client, create_client
 
-from utils import month_key, safe_float
+from config import DEFAULT_CATEGORIES, INCOME_CATEGORIES
+from utils import recurrence_period_bounds, safe_float
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
@@ -69,6 +69,66 @@ def username_exists(username: str) -> bool:
 def get_profile_username(user_id: str) -> Optional[str]:
     res = supabase.table("profiles").select("username").eq("id", user_id).limit(1).execute()
     return res.data[0]["username"] if res.data else None
+
+
+# =========================================================
+# USER-DEFINED CATEGORIES (additive to config.py's built-in lists)
+# =========================================================
+
+def get_custom_categories(user_id: str, tx_type: str = "expense") -> List[str]:
+    res = (
+        supabase.table("categories")
+        .select("name")
+        .eq("user_id", user_id)
+        .eq("type", tx_type)
+        .order("created_at")
+        .execute()
+    )
+    return [str(row["name"]) for row in (res.data or [])]
+
+
+def get_category_options(user_id: str, tx_type: str = "expense") -> List[str]:
+    """Built-in defaults (config.py) followed by the user's own categories.
+
+    A custom category that duplicates a default (case-insensitively) is
+    skipped so the picker never shows the same name twice.
+    """
+    defaults = INCOME_CATEGORIES if tx_type == "income" else DEFAULT_CATEGORIES
+    seen = {c.lower() for c in defaults}
+    custom: list[str] = []
+    for name in get_custom_categories(user_id, tx_type):
+        if name.lower() not in seen:
+            custom.append(name)
+            seen.add(name.lower())
+    return list(defaults) + custom
+
+
+def add_custom_category(user_id: str, name: str, tx_type: str = "expense") -> tuple[bool, str]:
+    """Returns (ok, reason). `reason` is a machine-readable code the UI layer
+    maps to a translated message: "empty", "duplicate_default", "duplicate",
+    "error", or "ok".
+    """
+    name = (name or "").strip()
+    if not name:
+        return False, "empty"
+    defaults = INCOME_CATEGORIES if tx_type == "income" else DEFAULT_CATEGORIES
+    if name.lower() in {c.lower() for c in defaults}:
+        return False, "duplicate_default"
+    try:
+        supabase.table("categories").insert({
+            "user_id": user_id,
+            "name": name,
+            "type": tx_type,
+        }).execute()
+    except Exception as exc:
+        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
+            return False, "duplicate"
+        return False, "error"
+    return True, "ok"
+
+
+def delete_custom_category(user_id: str, name: str, tx_type: str = "expense") -> None:
+    supabase.table("categories").delete().eq("user_id", user_id).eq("type", tx_type).eq("name", name).execute()
 
 
 def get_rates_map(base: str = "EUR") -> Dict[str, float]:
@@ -148,11 +208,12 @@ def load_expenses(user_id: str, start_date: Optional[date] = None, end_date: Opt
     res = query.order("date", desc=True).execute()
     df = pd.DataFrame(res.data)
     if df.empty:
-        return pd.DataFrame(columns=["id", "user_id", "date", "amount", "category", "currency", "subscription", "note", "type"])
+        return pd.DataFrame(columns=["id", "user_id", "date", "amount", "category", "currency", "subscription", "recurrence", "note", "type"])
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"]).copy()
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
     df["subscription"] = pd.to_numeric(df.get("subscription", 0), errors="coerce").fillna(0).astype(int)
+    df["recurrence"] = df.get("recurrence", "monthly").fillna("monthly")
     df["note"] = df.get("note", "").fillna("")
     df["currency"] = df.get("currency", "EUR").fillna("EUR")
     df["category"] = df.get("category", "Other").fillna("Other")
@@ -240,37 +301,41 @@ def execute_expense_write(write_fn, payload: Dict[str, object]) -> None:
         write_fn(fallback_payload)
 
 
-def add_transaction(user_id: str, expense_date: date, amount: float, category: str, currency: str, tx_type: str = "expense", note: str = "", subscription: int = 0) -> None:
+def add_transaction(user_id: str, expense_date: date, amount: float, category: str, currency: str, tx_type: str = "expense", note: str = "", subscription: int = 0, recurrence: str = "monthly") -> None:
     signed_amount = abs(amount) * (-1 if tx_type == "income" else 1)
     amount_eur = convert_to_eur(signed_amount, currency)
+    is_subscription = int(subscription if tx_type == "expense" else 0)
     payload = {
         "user_id": user_id,
         "date": expense_date.isoformat(),
         "amount": amount_eur,
         "category": category,
         "currency": currency,
-        "subscription": int(subscription if tx_type == "expense" else 0),
+        "subscription": is_subscription,
+        "recurrence": (recurrence or "monthly") if is_subscription else "monthly",
         "note": (note or "").strip(),
         "type": tx_type,
     }
     execute_expense_write(lambda p: supabase.table("expenses").insert(p).execute(), payload)
 
 
-def add_expense(user_id: str, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0) -> None:
-    add_transaction(user_id, expense_date, amount, category, currency, "expense", note, subscription)
+def add_expense(user_id: str, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0, recurrence: str = "monthly") -> None:
+    add_transaction(user_id, expense_date, amount, category, currency, "expense", note, subscription, recurrence)
 
 
 def update_transaction(user_id: str, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
-                   category: str, note: str, subscription: bool, tx_type: str = "expense") -> None:
+                   category: str, note: str, subscription: bool, tx_type: str = "expense", recurrence: str = "monthly") -> None:
     signed_amount = abs(original_amount) * (-1 if tx_type == "income" else 1)
     amount_eur = convert_to_eur(signed_amount, original_currency)
+    is_subscription = bool(subscription and tx_type == "expense")
     payload = {
         "date": expense_date.isoformat(),
         "amount": amount_eur,
         "currency": original_currency,
         "category": category,
         "note": (note or "").strip(),
-        "subscription": 1 if (subscription and tx_type == "expense") else 0,
+        "subscription": 1 if is_subscription else 0,
+        "recurrence": (recurrence or "monthly") if is_subscription else "monthly",
         "type": tx_type,
     }
     execute_expense_write(
@@ -280,15 +345,26 @@ def update_transaction(user_id: str, expense_id: int, expense_date: date, origin
 
 
 def update_expense(user_id: str, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
-                   category: str, note: str, subscription: bool) -> None:
-    update_transaction(user_id, expense_id, expense_date, original_amount, original_currency, category, note, subscription, "expense")
+                   category: str, note: str, subscription: bool, recurrence: str = "monthly") -> None:
+    update_transaction(user_id, expense_id, expense_date, original_amount, original_currency, category, note, subscription, "expense", recurrence)
 
 
 def delete_expense(user_id: str, expense_id: int) -> None:
     supabase.table("expenses").delete().eq("id", int(expense_id)).eq("user_id", user_id).execute()
 
 
-def upsert_monthly_subscriptions(user_id: str) -> int:
+def upsert_recurring_transactions(user_id: str) -> int:
+    """Create this period's occurrence for every recurring (subscription) row
+    that doesn't already have one.
+
+    "Period" depends on each row's own `recurrence` (weekly/monthly/yearly,
+    see `utils.recurrence_period_bounds`) — this generalizes what used to be
+    a monthly-only check. Matching an existing occurrence is still done by
+    exact category/note/amount/recurrence match within the period, which
+    remains the same brittleness the original monthly-only version had: if a
+    subscription's note or amount changes, a duplicate (or a missed
+    occurrence) can appear. That trade-off is unchanged by this pass.
+    """
     df = load_expenses(user_id)
     if df.empty:
         return 0
@@ -297,36 +373,39 @@ def upsert_monthly_subscriptions(user_id: str) -> int:
         return 0
 
     today = date.today()
-    current_month = today.strftime("%Y-%m")
-    month_start = date(today.year, today.month, 1)
-    month_end_day = calendar.monthrange(today.year, today.month)[1]
-    next_month_start = month_start + timedelta(days=month_end_day)
     created = 0
 
     for _, row in subs.iterrows():
-        if month_key(row["date"]) == current_month:
+        recurrence = str(row.get("recurrence") or "monthly")
+        period_start, period_end = recurrence_period_bounds(today, recurrence)
+        row_date = row["date"].date()
+        if period_start <= row_date < period_end:
+            # Already has an occurrence in the current period (either the
+            # original entry or one generated on an earlier login).
             continue
         exists = (
             supabase.table("expenses")
             .select("id")
             .eq("user_id", user_id)
             .eq("subscription", 1)
+            .eq("recurrence", recurrence)
             .eq("category", str(row["category"]))
             .eq("note", str(row["note"]))
             .eq("amount", float(row["amount"]))
-            .gte("date", month_start.isoformat())
-            .lt("date", next_month_start.isoformat())
+            .gte("date", period_start.isoformat())
+            .lt("date", period_end.isoformat())
             .limit(1)
             .execute()
         )
         if not exists.data:
             supabase.table("expenses").insert({
                 "user_id": user_id,
-                "date": month_start.isoformat(),
+                "date": period_start.isoformat(),
                 "amount": float(row["amount"]),
                 "category": str(row["category"]),
                 "currency": str(row["currency"] or "EUR"),
                 "subscription": 1,
+                "recurrence": recurrence,
                 "note": str(row["note"]),
             }).execute()
             created += 1

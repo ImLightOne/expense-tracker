@@ -28,8 +28,8 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 os.environ.setdefault("SUPABASE_URL", SUPABASE_URL)
 os.environ.setdefault("SUPABASE_KEY", SUPABASE_KEY)
 
-from config import DEFAULT_CATEGORIES, SUPPORTED_CURRENCIES
-from db import load_expenses, load_savings, upsert_monthly_subscriptions
+from config import SUPPORTED_CURRENCIES
+from db import get_category_options, load_expenses, load_savings, upsert_recurring_transactions
 from analytics import apply_filters, enrich_expenses
 from common import (
     consume_email_link,
@@ -49,6 +49,7 @@ from common import (
 from views import (
     add_expense,
     analytics_page,
+    categories_page,
     dashboard,
     import_export,
     manage_expenses,
@@ -130,9 +131,12 @@ if not st.session_state.user_id:
     st.stop()
 
 user_id = require_login()
-created_subs = upsert_monthly_subscriptions(user_id)
+created_subs = upsert_recurring_transactions(user_id)
 if created_subs:
-    st.toast(f"{created_subs} {l('recurring subscription(s) added for this month.', 'повторюваних підписок додано за цей місяць.', 'wiederkehrende(s) Abonnement(s) für diesen Monat hinzugefügt.')}")
+    st.toast(f"{created_subs} {l('recurring transaction(s) added.', 'повторюваних транзакцій додано.', 'wiederkehrende Transaktion(en) hinzugefügt.')}")
+
+expense_categories = get_category_options(user_id, "expense")
+income_categories = get_category_options(user_id, "income")
 
 st.sidebar.divider()
 display_currency = st.sidebar.selectbox(t("display_currency"), SUPPORTED_CURRENCIES, index=0)
@@ -163,7 +167,8 @@ with st.sidebar:
     end_date = st.date_input(t("to"), value=preset_end, min_value=min_date, max_value=max_date if max_date >= min_date else None)
     if start_date > end_date:
         start_date, end_date = end_date, start_date
-    category_filter = st.multiselect(t("categories"), options=DEFAULT_CATEGORIES)
+    all_categories = list(dict.fromkeys(expense_categories + income_categories))
+    category_filter = st.multiselect(t("categories"), options=all_categories)
     search_query = st.text_input(t("search_text"), placeholder=t("search_placeholder"))
     subs_only_global = st.checkbox(t("subscriptions_only"))
 
@@ -182,6 +187,8 @@ ctx = {
     "start_date": start_date,
     "end_date": end_date,
     "history_is_complete": show_full_history,
+    "expense_categories": expense_categories,
+    "income_categories": income_categories,
 }
 
 st.title(t("app_title"))
@@ -196,6 +203,7 @@ pages = [
     st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon="💰", url_path="savings"),
     st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon="📈", url_path="analytics"),
     st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon="📤", url_path="import-export"),
+    st.Page(lambda v=categories_page: v.render(ctx), title=t("categories_page"), icon="🏷️", url_path="categories"),
 ]
 navigation = st.navigation(pages, position="sidebar")
 st.sidebar.markdown(f"### {t('navigation')}")

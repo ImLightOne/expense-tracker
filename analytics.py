@@ -187,8 +187,9 @@ def savings_progress(saved: float, target: float) -> float:
 
 def csv_template() -> bytes:
     template = pd.DataFrame([
-        {"date": date.today().isoformat(), "amount": 12.50, "currency": "EUR", "category": "Cafe", "note": "Coffee", "subscription": 0, "type": "expense"},
-        {"date": date.today().isoformat(), "amount": 2500.00, "currency": "EUR", "category": "Salary", "note": "Monthly salary", "subscription": 0, "type": "income"},
+        {"date": date.today().isoformat(), "amount": 12.50, "currency": "EUR", "category": "Cafe", "note": "Coffee", "subscription": 0, "recurrence": "monthly", "type": "expense"},
+        {"date": date.today().isoformat(), "amount": 9.99, "currency": "EUR", "category": "Entertainment", "note": "Streaming", "subscription": 1, "recurrence": "yearly", "type": "expense"},
+        {"date": date.today().isoformat(), "amount": 2500.00, "currency": "EUR", "category": "Salary", "note": "Monthly salary", "subscription": 0, "recurrence": "monthly", "type": "income"},
     ])
     return template.to_csv(index=False).encode("utf-8")
 

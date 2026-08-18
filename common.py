@@ -379,6 +379,7 @@ TRANSLATIONS = {
         "savings": "Savings",
         "analytics": "Analytics",
         "import_export": "Import / Export",
+        "categories_page": "Categories",
         "filtered_transactions": "filtered transactions",
         "top_category": "Top category",
         "largest_expense": "Largest expense",
@@ -435,6 +436,7 @@ TRANSLATIONS = {
         "savings": "Заощадження",
         "analytics": "Аналітика",
         "import_export": "Імпорт / Експорт",
+        "categories_page": "Категорії",
         "filtered_transactions": "відфільтрованих транзакцій",
         "top_category": "Топ категорія",
         "largest_expense": "Найбільша витрата",
@@ -491,6 +493,7 @@ TRANSLATIONS = {
         "savings": "Sparen",
         "analytics": "Analysen",
         "import_export": "Import / Export",
+        "categories_page": "Kategorien",
         "filtered_transactions": "gefilterte Transaktionen",
         "top_category": "Top-Kategorie",
         "largest_expense": "Größte Ausgabe",
@@ -527,3 +530,12 @@ def ltx(tx_type: str) -> str:
         "income": l("Income", "Дохід", "Einnahme"),
     }
     return mapping.get(str(tx_type).lower(), str(tx_type).title())
+
+
+def lrec(recurrence: str) -> str:
+    mapping = {
+        "weekly": l("Weekly", "Щотижня", "Wöchentlich"),
+        "monthly": l("Monthly", "Щомісяця", "Monatlich"),
+        "yearly": l("Yearly", "Щорічно", "Jährlich"),
+    }
+    return mapping.get(str(recurrence).lower(), str(recurrence).title())

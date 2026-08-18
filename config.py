@@ -7,6 +7,12 @@ SUPPORTED_CURRENCIES = ["EUR", "USD", "UAH"]
 
 INCOME_CATEGORIES = ["Salary", "Bonus", "Freelance", "Investments", "Gift", "Refund", "Other Income"]
 
+# Recurrence periods available for recurring (subscription) transactions.
+# "monthly" is the historical default — every row created before this option
+# existed is backfilled to "monthly" at the database level, so this order
+# also doubles as the fallback/display order in the UI.
+RECURRENCE_OPTIONS = ["weekly", "monthly", "yearly"]
+
 CATEGORY_COLORS = {
     "Food": "#f97316",
     "Transport": "#3b82f6",
