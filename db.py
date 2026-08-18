@@ -131,8 +131,21 @@ def convert_from_eur(amount_eur: float, out_currency: str) -> float:
     return round(safe_float(amount_eur) * safe_float(get_rates_map("EUR").get(out_currency, 1.0), 1.0), 2)
 
 
-def load_expenses(user_id: str) -> pd.DataFrame:
-    res = supabase.table("expenses").select("*").eq("user_id", user_id).order("date", desc=True).execute()
+def load_expenses(user_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None) -> pd.DataFrame:
+    """Load a user's transactions, optionally bounded to a date range.
+
+    Without bounds this pulls the user's entire transaction history in one
+    query. Callers that render on every Streamlit rerun (i.e. the main app)
+    should pass `start_date` to avoid re-fetching years of history on every
+    widget interaction; callers that need guaranteed-complete data (full
+    export, subscription bookkeeping) should call this with no bounds.
+    """
+    query = supabase.table("expenses").select("*").eq("user_id", user_id)
+    if start_date is not None:
+        query = query.gte("date", start_date.isoformat())
+    if end_date is not None:
+        query = query.lte("date", end_date.isoformat())
+    res = query.order("date", desc=True).execute()
     df = pd.DataFrame(res.data)
     if df.empty:
         return pd.DataFrame(columns=["id", "user_id", "date", "amount", "category", "currency", "subscription", "note", "type"])
@@ -159,6 +172,23 @@ def load_savings(user_id: str) -> pd.DataFrame:
     df["target"] = pd.to_numeric(df["target"], errors="coerce").fillna(0.0)
     df["saved"] = pd.to_numeric(df["saved"], errors="coerce").fillna(0.0)
     return df
+
+
+def add_savings_goal(user_id: str, name: str, target: float, saved: float) -> None:
+    supabase.table("savings").insert({
+        "user_id": user_id,
+        "name": name,
+        "target": float(target),
+        "saved": float(saved),
+    }).execute()
+
+
+def update_savings_progress(user_id: str, goal_id: int, new_saved: float) -> None:
+    supabase.table("savings").update({"saved": float(new_saved)}).eq("id", int(goal_id)).eq("user_id", user_id).execute()
+
+
+def delete_savings_goal(user_id: str, goal_id: int) -> None:
+    supabase.table("savings").delete().eq("id", int(goal_id)).eq("user_id", user_id).execute()
 
 
 def get_monthly_limit(user_id: str) -> Optional[float]:
