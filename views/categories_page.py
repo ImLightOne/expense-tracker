@@ -3,8 +3,16 @@ from __future__ import annotations
 import streamlit as st
 
 from common import end_section, l, lcat, rerun, section, show_empty
-from config import DEFAULT_CATEGORIES, INCOME_CATEGORIES
-from db import add_custom_category, delete_custom_category, get_custom_categories
+from config import CATEGORY_COLORS, DEFAULT_CATEGORIES, INCOME_CATEGORIES
+from db import (
+    add_custom_category,
+    delete_custom_category,
+    get_category_colors,
+    get_category_options,
+    get_custom_categories,
+    reset_category_color,
+    set_category_color,
+)
 
 _ADD_ERROR_MESSAGES = {
     "empty": lambda: l("Category name cannot be empty.", "Назва категорії не може бути порожньою.", "Der Kategoriename darf nicht leer sein."),
@@ -42,6 +50,42 @@ def _render_type_section(user_id: str, tx_type: str, defaults: list) -> None:
             st.error(_ADD_ERROR_MESSAGES.get(reason, _ADD_ERROR_MESSAGES["error"])())
 
 
+def _render_color_section(user_id: str, tx_type: str) -> None:
+    """One row per category (built-in + custom) with a color picker and a
+    "Reset" button that only shows once that category actually has a saved
+    override — comparing against a fresh, un-merged fetch of the user's
+    overrides (not the ctx-level merged map dashboard/pie charts use) is
+    what lets us tell "override happens to equal the default" apart from
+    "no override at all".
+    """
+    st.markdown(f"**{l('Category colors', 'Кольори категорій', 'Kategoriefarben')}**")
+    st.caption(l(
+        "Used in the pie chart and the category badges on recent transactions.",
+        "Використовуються в круговій діаграмі та бейджах категорій в останніх транзакціях.",
+        "Werden im Kreisdiagramm und bei den Kategorie-Badges der letzten Transaktionen verwendet.",
+    ))
+    all_categories = get_category_options(user_id, tx_type)
+    overrides = get_category_colors(user_id)
+    for name in all_categories:
+        default_color = CATEGORY_COLORS.get(name, CATEGORY_COLORS["Other"])
+        is_overridden = name in overrides
+        current_color = overrides.get(name, default_color)
+        row_label, row_picker, row_reset = st.columns([3, 2, 1.4])
+        row_label.write(lcat(name))
+        picked = row_picker.color_picker(
+            l("Color", "Колір", "Farbe"), value=current_color,
+            key=f"color_{tx_type}_{name}", label_visibility="collapsed",
+        )
+        if picked.lower() != current_color.lower():
+            set_category_color(user_id, name, tx_type, picked)
+            rerun()
+        if is_overridden:
+            if row_reset.button(l("Reset", "Скинути", "Zurücksetzen"), key=f"reset_color_{tx_type}_{name}", use_container_width=True):
+                reset_category_color(user_id, name, tx_type)
+                st.success(l("Color reset to default.", "Колір скинуто до типового.", "Farbe zurückgesetzt."))
+                rerun()
+
+
 def render(ctx: dict) -> None:
     user_id = ctx["user_id"]
 
@@ -54,8 +98,12 @@ def render(ctx: dict) -> None:
         ),
     )
     _render_type_section(user_id, "expense", DEFAULT_CATEGORIES)
+    st.divider()
+    _render_color_section(user_id, "expense")
     end_section()
 
     section(l("Income categories", "Категорії доходів", "Einnahmenkategorien"))
     _render_type_section(user_id, "income", INCOME_CATEGORIES)
+    st.divider()
+    _render_color_section(user_id, "income")
     end_section()

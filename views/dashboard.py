@@ -45,7 +45,7 @@ def render(ctx: dict) -> None:
     net_tone = "good" if net_balance >= 0 else "critical"
     net_chip = l("Positive", "Позитивний", "Positiv") if net_balance >= 0 else l("Negative", "Негативний", "Negativ")
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4, gap="medium")
     with c1:
         metric_card(l("Total spent", "Усього витрачено", "Gesamtausgaben"), format_money(total_spent, display_currency), f"{tx_count} {l('transactions', 'транзакцій', 'Transaktionen')}")
     with c2:
@@ -77,7 +77,7 @@ def render(ctx: dict) -> None:
         else:
             metric_card(l("Budget left", "Залишок бюджету", "Verbleibendes Budget"), l("Not set", "Не задано", "Nicht festgelegt"), l("Set a monthly budget below", "Задай місячний бюджет нижче", "Lege unten ein Monatsbudget fest"))
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4 = st.columns(4, gap="medium")
     top_cat = category_summary(expense_df, "display_abs_amount")
     top_cat_name = lcat(top_cat.iloc[0]["category"]) if not top_cat.empty else "—"
     biggest_tx = safe_float(expense_df["display_abs_amount"].max())
@@ -123,8 +123,7 @@ def render(ctx: dict) -> None:
     with right:
         section(l("Category split", "Розподіл категорій", "Kategorieverteilung"), l("Pie view for the same filtered range.", "Кругова діаграма для того ж фільтра.", "Kreisdiagramm für denselben Filter."))
         pie_df = category_summary(expense_df, "display_abs_amount").copy()
-        pie_df["category"] = pie_df["category"].map(lcat)
-        plot_pie(pie_df, "display_abs_amount")
+        plot_pie(pie_df, "display_abs_amount", category_colors=ctx.get("category_colors"))
         end_section()
 
     left2, right2 = st.columns([1.1, 1])
@@ -223,8 +222,10 @@ def render(ctx: dict) -> None:
         if recent.empty:
             show_empty(l("No expenses in the selected range.", "У вибраному діапазоні немає витрат.", "Keine Ausgaben im ausgewählten Bereich."))
         else:
+            category_colors = ctx.get("category_colors", CATEGORY_COLORS)
             for _, row in recent.iterrows():
-                badge = f'<span class="badge" style="background:{CATEGORY_COLORS.get(row["category"], CATEGORY_COLORS["Other"])}">{lcat(row["category"])}</span>'
+                badge_color = category_colors.get(row["category"], category_colors.get("Other", CATEGORY_COLORS["Other"]))
+                badge = f'<span class="badge" style="background:{badge_color}">{lcat(row["category"])}</span>'
                 sub_badge = f'<span class="badge" style="background:#3b82f6">{l("Subscription", "Підписка", "Abo")}</span>' if int(row["subscription"]) == 1 else ""
                 st.markdown(
                     f'<div class="feed-row"><div>{badge} {sub_badge}<br><span class="small-muted">{row["date_only"]} · {row["note"] or row["merchant"]}</span></div>'
