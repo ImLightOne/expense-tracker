@@ -15,6 +15,8 @@ def render(ctx: dict) -> None:
     subs = filtered_df[filtered_df["subscription"] == 1].copy()
     if subs.empty:
         show_empty(l("No subscriptions in the selected range.", "У вибраному діапазоні немає підписок.", "Keine Abos im ausgewählten Bereich."))
+        if "pages" in ctx:
+            st.page_link(ctx["pages"]["add_expense"], label=l("Add a recurring expense", "Додати повторювану витрату", "Wiederkehrende Ausgabe hinzufügen"), icon="➕")
     else:
         subs["recurrence"] = subs["recurrence"].fillna("monthly")
         # Normalize every subscription to a monthly-equivalent amount before

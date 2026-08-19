@@ -74,6 +74,8 @@ def render(ctx: dict) -> None:
         cat_df = category_summary(expense_df, "display_abs_amount")
         if cat_df.empty:
             show_empty(l("Add a few transactions to unlock the dashboard.", "Додай кілька транзакцій, щоб активувати дашборд.", "Füge ein paar Transaktionen hinzu, um das Dashboard zu aktivieren."))
+            if "pages" in ctx:
+                st.page_link(ctx["pages"]["quick_add"], label=t("quick_add"), icon="⚡")
         else:
             cat_df_view = cat_df.copy()
             cat_df_view["category"] = cat_df_view["category"].map(lcat)
@@ -198,6 +200,8 @@ def render(ctx: dict) -> None:
         section(l("Savings goals", "Цілі заощаджень", "Sparziele"), l("Quick progress summary.", "Короткий підсумок прогресу.", "Kurze Fortschrittsübersicht."))
         if savings_df.empty:
             show_empty(l("No savings goals yet.", "Цілей заощаджень ще немає.", "Noch keine Sparziele vorhanden."))
+            if "pages" in ctx:
+                st.page_link(ctx["pages"]["savings"], label=t("savings"), icon="💰")
         else:
             for _, row in savings_df.iterrows():
                 progress = savings_progress(row["saved"], row["target"])
