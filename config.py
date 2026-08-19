@@ -107,36 +107,73 @@ STOPWORDS = {
 
 STYLE = """
 <style>
+/* ---------------------------------------------------------------------
+   Minimalist / monochrome theme. Everything here reads its colors from
+   Streamlit's own CSS variables (--background-color, --text-color, etc.)
+   instead of hardcoded hex values, so the whole UI — including the
+   sidebar and custom cards — follows whichever theme the visitor picks
+   from Streamlit's native "Choose app theme" menu (top-right ⋮ menu),
+   light or dark, without needing a separate in-app toggle. Category
+   badges are the one deliberate exception: they keep their per-category
+   colors (config.CATEGORY_COLORS) because that color-coding carries real
+   information (which category is which at a glance), not just decoration.
+   --------------------------------------------------------------------- */
+
 .block-container {max-width: 1400px; padding-top: 1rem; padding-bottom: 2rem;}
-[data-testid='stSidebar'] {background: linear-gradient(180deg,#111827 0%,#0f172a 100%) !important;}
-[data-testid='stSidebar'], [data-testid='stSidebar'] * {color: white !important;}
+
+[data-testid='stSidebar'] {
+  border-right: 1px solid rgba(128,128,128,.18);
+}
+
 .section-card {
   background: var(--secondary-background-color);
-  border: 1px solid rgba(128,128,128,.18);
-  border-radius: 18px; padding: 1rem; margin-bottom: 1rem;
-  box-shadow: 0 8px 24px rgba(15,23,42,.06);
+  border: 1px solid rgba(128,128,128,.15);
+  border-radius: 14px; padding: 1.1rem; margin-bottom: 1rem;
 }
+
 .metric-card {
-  background: linear-gradient(135deg,#0f172a 0%,#1e293b 100%);
-  color: white; border-radius: 18px; padding: 1rem; min-height: 125px;
-  box-shadow: 0 10px 28px rgba(15,23,42,.18);
+  background: var(--secondary-background-color);
+  color: var(--text-color);
+  border: 1px solid rgba(128,128,128,.15);
+  border-left: 3px solid var(--primary-color);
+  border-radius: 14px; padding: 1rem; min-height: 118px;
 }
-.metric-label {font-size:.95rem; opacity:.8; margin-bottom:.35rem;}
-.metric-value {font-size:1.7rem; font-weight:800; line-height:1.08;}
-.metric-foot {font-size:.88rem; opacity:.75; margin-top:.4rem;}
-.small-muted {opacity:.72; font-size:.92rem;}
+.metric-label {font-size:.9rem; opacity:.7; margin-bottom:.35rem;}
+.metric-value {font-size:1.6rem; font-weight:700; line-height:1.1;}
+.metric-foot {font-size:.85rem; opacity:.65; margin-top:.4rem;}
+.small-muted {opacity:.68; font-size:.9rem;}
+
 .badge {
   display:inline-block; padding:.2rem .55rem; border-radius:999px;
   font-size:.76rem; font-weight:700; color:white;
 }
+
 .feed-row {
   display:flex; justify-content:space-between; align-items:center; gap:10px;
-  padding:.75rem; border:1px solid rgba(128,128,128,.18); border-radius:14px;
-  margin-bottom:.55rem; background:var(--secondary-background-color);
+  flex-wrap: wrap;
+  padding:.75rem; border:1px solid rgba(128,128,128,.15); border-radius:12px;
+  margin-bottom:.5rem; background:var(--secondary-background-color);
 }
+
 .soft-box {
-  border:1px dashed rgba(128,128,128,.28); border-radius:16px; padding:1rem;
+  border:1px dashed rgba(128,128,128,.28); border-radius:14px; padding:1rem;
   background:var(--secondary-background-color);
+}
+
+/* ---------------------------------------------------------------------
+   Mobile: tighten spacing and type scale below ~640px (typical phone
+   width) so cards and metrics don't feel oversized or cramped once
+   Streamlit's columns stack vertically.
+   --------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .block-container {padding-left: .75rem; padding-right: .75rem;}
+  .section-card {padding: .85rem; border-radius: 12px;}
+  .metric-card {padding: .85rem; min-height: unset;}
+  .metric-value {font-size:1.35rem;}
+  .metric-label {font-size:.82rem;}
+  .metric-foot {font-size:.78rem;}
+  .feed-row {padding:.6rem; flex-direction: column; align-items: flex-start;}
+  .badge {font-size:.72rem;}
 }
 </style>
 """

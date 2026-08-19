@@ -51,6 +51,7 @@ from views import (
     analytics_page,
     categories_page,
     dashboard,
+    help_page,
     import_export,
     manage_expenses,
     quick_add,
@@ -194,16 +195,47 @@ ctx = {
 st.title(t("app_title"))
 st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} {t('filtered_transactions')}")
 
+# Page objects are created here (rather than inline in a list literal) and
+# stashed on ctx["pages"] so individual views can build real st.page_link
+# cross-links to each other (e.g. an empty state on the dashboard linking
+# straight to Quick Add) instead of only relying on the sidebar nav. The
+# lambdas below still close over `ctx` by reference, so adding the "pages"
+# key to it afterwards is picked up fine when a page actually renders.
+page_dashboard = st.Page(lambda v=dashboard: v.render(ctx), title=t("dashboard"), icon="📊", url_path="dashboard", default=True)
+page_quick_add = st.Page(lambda v=quick_add: v.render(ctx), title=t("quick_add"), icon="⚡", url_path="quick-add")
+page_add_expense = st.Page(lambda v=add_expense: v.render(ctx), title=t("add_expense"), icon="➕", url_path="add-expense")
+page_manage_expenses = st.Page(lambda v=manage_expenses: v.render(ctx), title=t("manage_expenses"), icon="🗂️", url_path="manage-expenses")
+page_subscriptions = st.Page(lambda v=subscriptions: v.render(ctx), title=t("subscriptions"), icon="🔁", url_path="subscriptions")
+page_savings = st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon="💰", url_path="savings")
+page_analytics = st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon="📈", url_path="analytics")
+page_import_export = st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon="📤", url_path="import-export")
+page_categories = st.Page(lambda v=categories_page: v.render(ctx), title=t("categories_page"), icon="🏷️", url_path="categories")
+page_help = st.Page(lambda v=help_page: v.render(ctx), title=t("help_page"), icon="❓", url_path="help")
+
+ctx["pages"] = {
+    "dashboard": page_dashboard,
+    "quick_add": page_quick_add,
+    "add_expense": page_add_expense,
+    "manage_expenses": page_manage_expenses,
+    "subscriptions": page_subscriptions,
+    "savings": page_savings,
+    "analytics": page_analytics,
+    "import_export": page_import_export,
+    "categories": page_categories,
+    "help": page_help,
+}
+
 pages = [
-    st.Page(lambda v=dashboard: v.render(ctx), title=t("dashboard"), icon="📊", url_path="dashboard", default=True),
-    st.Page(lambda v=quick_add: v.render(ctx), title=t("quick_add"), icon="⚡", url_path="quick-add"),
-    st.Page(lambda v=add_expense: v.render(ctx), title=t("add_expense"), icon="➕", url_path="add-expense"),
-    st.Page(lambda v=manage_expenses: v.render(ctx), title=t("manage_expenses"), icon="🗂️", url_path="manage-expenses"),
-    st.Page(lambda v=subscriptions: v.render(ctx), title=t("subscriptions"), icon="🔁", url_path="subscriptions"),
-    st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon="💰", url_path="savings"),
-    st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon="📈", url_path="analytics"),
-    st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon="📤", url_path="import-export"),
-    st.Page(lambda v=categories_page: v.render(ctx), title=t("categories_page"), icon="🏷️", url_path="categories"),
+    page_dashboard,
+    page_quick_add,
+    page_add_expense,
+    page_manage_expenses,
+    page_subscriptions,
+    page_savings,
+    page_analytics,
+    page_import_export,
+    page_categories,
+    page_help,
 ]
 navigation = st.navigation(pages, position="sidebar")
 st.sidebar.markdown(f"### {t('navigation')}")

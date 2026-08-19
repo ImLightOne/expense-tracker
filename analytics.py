@@ -10,7 +10,23 @@ from utils import extract_merchant, month_key, safe_float
 
 def enrich_expenses(df: pd.DataFrame, display_currency: str) -> pd.DataFrame:
     if df.empty:
-        return df.copy()
+        # Pre-existing bug (not introduced by this wave, fixed while touching
+        # this file): returning a bare df.copy() here dropped every derived
+        # column (display_abs_amount, date_only, merchant, ...). That's fine
+        # for load_expenses' own empty frame, but every caller downstream
+        # (dashboard, subscriptions, etc.) indexes those derived columns
+        # unconditionally, so a brand-new user with zero transactions ever
+        # would crash the dashboard on first login. Keep the same empty-row
+        # shape but with the full output column set, so "no data yet" reads
+        # as an empty table instead of a KeyError.
+        out = df.copy()
+        for col in ("display_amount", "display_abs_amount", "original_amount"):
+            out[col] = pd.Series(dtype="float64")
+        for col in ("date_only", "month", "weekday", "merchant"):
+            out[col] = pd.Series(dtype="object")
+        for col in ("year", "day"):
+            out[col] = pd.Series(dtype="Int64")
+        return out
     out = df.copy()
     out["display_amount"] = out["amount"].apply(lambda x: convert_from_eur(x, display_currency))
     out["display_abs_amount"] = out["display_amount"].abs()
