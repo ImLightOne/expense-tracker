@@ -59,15 +59,58 @@ def rerun() -> None:
         st.experimental_rerun()
 
 
+_section_stack: List = []
+_section_key_counts: Dict[str, int] = {}
+
+
+def _section_key(title: str) -> str:
+    """Streamlit container keys must be unique within one script run. Titles
+    are unique per page in practice, but two different pages can reuse the
+    same title (e.g. both "savings.py" and "dashboard.py" have a "Savings
+    goals" section) — since only one page's render() runs per script, that's
+    fine on its own, but guard against any real duplicate within a single
+    run anyway rather than relying on that.
+    """
+    slug = "".join(c.lower() if c.isalnum() else "_" for c in title).strip("_")
+    count = _section_key_counts.get(slug, 0)
+    _section_key_counts[slug] = count + 1
+    return f"section_{slug}_{count}" if count else f"section_{slug}"
+
+
 def section(title: str, subtitle: Optional[str] = None) -> None:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    """Opens a visually-styled "card" wrapper (background, border, rounded
+    corners — see .section-card / .st-key-section_* in config.py's STYLE)
+    around everything rendered until the matching end_section() call.
+
+    This used to be `st.markdown('<div class="section-card">', ...)` here
+    and `st.markdown('</div>', ...)` in end_section(). That looked reasonable
+    but was silently broken: every st.markdown/st.subheader/etc. call in
+    Streamlit renders into its own separate, isolated DOM node, so an
+    unclosed <div> opened in one call's HTML and a closing </div> injected
+    by a later, different call never actually nest around the content in
+    between in the real DOM — confirmed by inspecting the live DOM, every
+    .section-card element had zero children. The result: an empty little
+    decorative box floating above each section, with the section's actual
+    content sitting outside any card at all.
+
+    st.container(key=...) is Streamlit's real (React-level) grouping
+    primitive — content written inside a `with` block on it is a genuine
+    DOM child — so giving it a CSS class via `key` and manually pairing
+    __enter__/__exit__ (mirroring the old open/close call pattern so every
+    existing section()/end_section() call site keeps working unchanged) is
+    what actually wraps the section on screen.
+    """
+    container = st.container(key=_section_key(title))
+    container.__enter__()
+    _section_stack.append(container)
     st.subheader(title)
     if subtitle:
         st.caption(subtitle)
 
 
 def end_section() -> None:
-    st.markdown("</div>", unsafe_allow_html=True)
+    if _section_stack:
+        _section_stack.pop().__exit__(None, None, None)
 
 
 # Fixed status colors (never themed — same hex regardless of light/dark mode).
@@ -110,13 +153,27 @@ def show_empty(text: str) -> None:
     st.markdown(f'<div class="soft-box">{text}</div>', unsafe_allow_html=True)
 
 
-def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount") -> None:
+def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount", category_colors: Optional[Dict[str, str]] = None) -> None:
+    """`cat_df["category"]` must still hold the raw (untranslated) category
+    name when this is called — colors are looked up by that raw name (it's
+    the only name a color override or config.CATEGORY_COLORS entry is ever
+    keyed by), and translated to the display language here, internally,
+    rather than by the caller. An earlier version had callers pre-translate
+    the column before calling this, which meant the color lookup below was
+    matching translated labels against English keys and silently missing
+    for every non-English UI language, always falling back to "Other"'s
+    color — not a wave-3 change, just fixed while touching this function
+    for the customizable-colors feature.
+    """
     if cat_df.empty:
         show_empty(l("Not enough data.", "Недостатньо даних.", "Nicht genug Daten."))
         return
-    colors = [CATEGORY_COLORS.get(c, CATEGORY_COLORS["Other"]) for c in cat_df["category"]]
+    colors_map = category_colors or CATEGORY_COLORS
+    fallback = colors_map.get("Other", CATEGORY_COLORS["Other"])
+    colors = [colors_map.get(c, fallback) for c in cat_df["category"]]
+    labels = cat_df["category"].map(lcat)
     fig, ax = plt.subplots(figsize=(5.5, 5.5))
-    ax.pie(cat_df[value_col], labels=cat_df["category"], autopct="%1.1f%%", startangle=90, colors=colors)
+    ax.pie(cat_df[value_col], labels=labels, autopct="%1.1f%%", startangle=90, colors=colors)
     ax.axis("equal")
     st.pyplot(fig)
     plt.close(fig)

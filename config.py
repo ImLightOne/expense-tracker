@@ -162,7 +162,18 @@ STYLE = """
   border-right: 1px solid rgba(128,128,128,.18);
 }
 
-.section-card {
+/* Section "cards" (common.py's section()/end_section()). Targets the real
+   st.container(key="section_...") wrapper element by its Streamlit-assigned
+   "st-key-section_*" class (attribute-contains selector, since the exact
+   key differs per section) rather than a hand-rolled .section-card class on
+   a raw <div>: an earlier version opened and closed that div across two
+   separate st.markdown() calls, which never actually nests real content
+   inside it (each Streamlit call renders into its own isolated DOM node) —
+   it only ever produced an empty decorative box floating above the section,
+   with the real content sitting outside any card. st.container(key=...) is
+   Streamlit's own grouping primitive, so this is the first version that
+   genuinely wraps the section on screen. */
+[class*="st-key-section_"] {
   background: var(--app-secondary-bg);
   border: 1px solid rgba(128,128,128,.15);
   border-radius: 14px; padding: 1.1rem; margin-bottom: 1rem;
@@ -176,6 +187,13 @@ STYLE = """
    in the accent bar + chip only, never the value text itself, so
    contrast never depends on which theme is active. */
 .metric-card {
+  /* margin-bottom is the important part here: the two metric rows on the
+     dashboard are two separate st.columns() calls stacked by Streamlit's
+     own layout, and its default gap between them was thin enough that the
+     cards' box-shadow (which paints outside the card's own border box —
+     overflow:hidden on this element does not clip its own shadow) read as
+     touching/overlapping the row below. An explicit margin guarantees a
+     real gap regardless of Streamlit's own spacing between blocks. */
   position: relative;
   overflow: hidden;
   background: var(--app-secondary-bg);
@@ -183,6 +201,7 @@ STYLE = """
   border: 1px solid rgba(128,128,128,.28);
   border-radius: 16px;
   padding: 1.15rem 1.3rem 1.2rem;
+  margin-bottom: 1.1rem;
   min-height: 130px;
   box-shadow: 0 1px 4px rgba(0,0,0,.12);
 }
@@ -237,7 +256,7 @@ STYLE = """
    --------------------------------------------------------------------- */
 @media (max-width: 640px) {
   .block-container {padding-left: .75rem; padding-right: .75rem;}
-  .section-card {padding: .85rem; border-radius: 12px;}
+  [class*="st-key-section_"] {padding: .85rem; border-radius: 12px;}
   .metric-card {padding: .9rem 1rem 1rem; min-height: unset;}
   .metric-value {font-size:1.5rem;}
   .metric-label {font-size:.7rem;}

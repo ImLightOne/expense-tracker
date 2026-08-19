@@ -131,6 +131,27 @@ def delete_custom_category(user_id: str, name: str, tx_type: str = "expense") ->
     supabase.table("categories").delete().eq("user_id", user_id).eq("type", tx_type).eq("name", name).execute()
 
 
+def get_category_colors(user_id: str) -> Dict[str, str]:
+    """User color overrides for any category (built-in or custom), across
+    both expense and income, flattened into one {name: "#hex"} dict — this
+    matches how config.CATEGORY_COLORS is already shaped and consumed
+    (a flat lookup by name), so callers can just merge the two dicts.
+    """
+    res = supabase.table("category_colors").select("name,color").eq("user_id", user_id).execute()
+    return {str(row["name"]): str(row["color"]) for row in (res.data or [])}
+
+
+def set_category_color(user_id: str, name: str, tx_type: str, color: str) -> None:
+    supabase.table("category_colors").upsert(
+        {"user_id": user_id, "name": name, "type": tx_type, "color": color},
+        on_conflict="user_id,type,name",
+    ).execute()
+
+
+def reset_category_color(user_id: str, name: str, tx_type: str) -> None:
+    supabase.table("category_colors").delete().eq("user_id", user_id).eq("type", tx_type).eq("name", name).execute()
+
+
 def get_rates_map(base: str = "EUR") -> Dict[str, float]:
     base = base.upper()
     fallback = {

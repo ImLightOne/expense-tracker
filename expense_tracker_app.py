@@ -28,8 +28,8 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 os.environ.setdefault("SUPABASE_URL", SUPABASE_URL)
 os.environ.setdefault("SUPABASE_KEY", SUPABASE_KEY)
 
-from config import SUPPORTED_CURRENCIES
-from db import get_category_options, load_expenses, load_savings, upsert_recurring_transactions
+from config import CATEGORY_COLORS, SUPPORTED_CURRENCIES
+from db import get_category_colors, get_category_options, load_expenses, load_savings, upsert_recurring_transactions
 from analytics import apply_filters, enrich_expenses
 from common import (
     consume_email_link,
@@ -143,6 +143,9 @@ if created_subs:
 
 expense_categories = get_category_options(user_id, "expense")
 income_categories = get_category_options(user_id, "income")
+# User overrides win over the built-in defaults; anything not overridden
+# just falls through to config.CATEGORY_COLORS via the merge.
+category_colors = {**CATEGORY_COLORS, **get_category_colors(user_id)}
 
 st.sidebar.divider()
 display_currency = st.sidebar.selectbox(t("display_currency"), SUPPORTED_CURRENCIES, index=0)
@@ -195,6 +198,7 @@ ctx = {
     "history_is_complete": show_full_history,
     "expense_categories": expense_categories,
     "income_categories": income_categories,
+    "category_colors": category_colors,
 }
 
 st.title(t("app_title"))
