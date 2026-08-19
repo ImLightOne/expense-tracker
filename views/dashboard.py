@@ -39,16 +39,41 @@ def render(ctx: dict) -> None:
     no_spend_streak, best_no_spend_streak = streak_metrics(base_display_df)
     health_score, health_label, health_breakdown = calculate_financial_health(expense_df, savings_df, current_month_limit_display)
 
+    # net_balance and budget_left double as status signals here, not just
+    # numbers — a tone + chip on the card makes that legible at a glance
+    # instead of requiring the reader to do the math themselves.
+    net_tone = "good" if net_balance >= 0 else "critical"
+    net_chip = l("Positive", "Позитивний", "Positiv") if net_balance >= 0 else l("Negative", "Негативний", "Negativ")
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        metric_card(l("Total spent", "Усього витрачено", "Gesamtausgaben"), format_money(total_spent, display_currency), f"{tx_count} transactions")
+        metric_card(l("Total spent", "Усього витрачено", "Gesamtausgaben"), format_money(total_spent, display_currency), f"{tx_count} {l('transactions', 'транзакцій', 'Transaktionen')}")
     with c2:
-        metric_card(l("Total income", "Усього доходів", "Gesamteinnahmen"), format_money(total_income, display_currency), f"{l('Net', 'Баланс', 'Netto')}: {format_money(net_balance, display_currency)}")
+        metric_card(
+            l("Total income", "Усього доходів", "Gesamteinnahmen"),
+            format_money(total_income, display_currency),
+            f"{l('Net', 'Баланс', 'Netto')}: {format_money(net_balance, display_currency)}",
+            tone=net_tone,
+            chip=net_chip,
+        )
     with c3:
         metric_card(l("Average expense", "Середня витрата", "Durchschnittliche Ausgabe"), format_money(avg_tx, display_currency), f"{l('Month forecast', 'Прогноз на місяць', 'Monatsprognose')}: {format_money(forecast_value, display_currency)}")
     with c4:
         if current_month_limit_display is not None:
-            metric_card(l("Budget left", "Залишок бюджету", "Verbleibendes Budget"), format_money(budget_left, display_currency), f"Budget: {format_money(current_month_limit_display, display_currency)}")
+            budget_pct_left = (budget_left / current_month_limit_display) if current_month_limit_display > 0 else 1.0
+            if budget_left <= 0:
+                budget_tone, budget_chip = "critical", l("Over budget", "Бюджет вичерпано", "Budget aufgebraucht")
+            elif budget_pct_left < 0.2:
+                budget_tone, budget_chip = "warning", l("Running low", "Майже вичерпано", "Wird knapp")
+            else:
+                budget_tone, budget_chip = "good", l("On track", "У межах плану", "Im Rahmen")
+            metric_card(
+                l("Budget left", "Залишок бюджету", "Verbleibendes Budget"),
+                format_money(budget_left, display_currency),
+                f"Budget: {format_money(current_month_limit_display, display_currency)}",
+                tone=budget_tone,
+                chip=budget_chip,
+            )
         else:
             metric_card(l("Budget left", "Залишок бюджету", "Verbleibendes Budget"), l("Not set", "Не задано", "Nicht festgelegt"), l("Set a monthly budget below", "Задай місячний бюджет нижче", "Lege unten ein Monatsbudget fest"))
 
@@ -58,15 +83,26 @@ def render(ctx: dict) -> None:
     biggest_tx = safe_float(expense_df["display_abs_amount"].max())
     savings_total = safe_float(savings_df["saved"].sum())
     savings_rate = (savings_total / (savings_total + total_spent) * 100) if (savings_total + total_spent) > 0 else 0.0
+    # Reuses the same "Excellent/Good/Needs attention/Risky" tiers the score
+    # itself is computed from (analytics.calculate_financial_health) rather
+    # than inventing a second set of thresholds just for color.
+    health_tone_map = {"Excellent": "good", "Good": "good", "Needs attention": "warning", "Risky": "critical"}
+    health_tone = health_tone_map.get(health_label)
     with m1:
-        st.metric(t("top_category"), top_cat_name)
+        metric_card(t("top_category"), top_cat_name)
     with m2:
-        st.metric(t("largest_expense"), format_money(biggest_tx, display_currency))
+        metric_card(t("largest_expense"), format_money(biggest_tx, display_currency))
     with m3:
-        st.metric(t("savings_rate"), f"{savings_rate:.1f}%")
+        metric_card(t("savings_rate"), f"{savings_rate:.1f}%")
     with m4:
         hb = health_breakdown if isinstance(health_breakdown, dict) else {}
-        st.metric(t("health_score"), f"{health_score}/100", help=f"{health_label} · {t('budget')} {hb.get('budget', '—')}, {t('saving')} {hb.get('saving', '—')}, {t('consistency')} {hb.get('consistency', '—')}")
+        metric_card(
+            t("health_score"),
+            f"{health_score}/100",
+            foot=f"{t('budget')} {hb.get('budget', '—')} · {t('saving')} {hb.get('saving', '—')} · {t('consistency')} {hb.get('consistency', '—')}",
+            tone=health_tone,
+            chip=health_label if health_tone else None,
+        )
 
     left, right = st.columns([1.4, 1])
     with left:
