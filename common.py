@@ -29,7 +29,23 @@ from db import (
 )
 from utils import format_money, safe_float
 
-st.markdown(STYLE, unsafe_allow_html=True)
+def inject_style() -> None:
+    """Injects the app's <style> block. Must be called explicitly from the
+    main script body on every run — NOT left as module-level code here.
+
+    Streamlit reruns expense_tracker_app.py (the main script) top to bottom
+    on every interaction, but a `from common import ...` on those reruns
+    hits Python's sys.modules cache: common.py's top-level statements only
+    execute once, the first time the module is ever imported in this
+    process. A bare `st.markdown(STYLE, ...)` at module level here used to
+    rely on that one-time execution — so the stylesheet was only ever
+    present on a session's very first script run, and vanished from the
+    DOM on every rerun after (which is effectively always, since logging
+    in alone triggers one). Calling this from the main script instead
+    means it re-runs — and re-injects the <style> tag — every single time,
+    same as everything else the main script does on every rerun.
+    """
+    st.markdown(STYLE, unsafe_allow_html=True)
 
 
 # =========================================================
@@ -54,11 +70,38 @@ def end_section() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def metric_card(label: str, value: str, foot: str = "") -> None:
+# Fixed status colors (never themed — same hex regardless of light/dark mode).
+# Used only as a chip's own background+ink pair, never as page text color, so
+# contrast never depends on Streamlit's current theme: the chip carries its own
+# background, so it always clears contrast against its own ink.
+_TONE_CHIP_STYLE = {
+    "good": ("#0ca30c", "#ffffff"),
+    "warning": ("#fab219", "#1a1a19"),
+    "serious": ("#ec835a", "#1a1a19"),
+    "critical": ("#d03b3b", "#ffffff"),
+}
+
+
+def metric_card(label: str, value: str, foot: str = "", tone: Optional[str] = None, chip: Optional[str] = None) -> None:
+    """Render a stat tile.
+
+    `tone` (None / "good" / "warning" / "serious" / "critical") colors the card's
+    top accent bar and, when `chip` is also given, renders `chip` as a small solid
+    pill badge. The headline `value` always stays in the page's normal text color —
+    status is carried by the label text, the chip text, and the accent bar together,
+    never by tinting the number itself (that would fail contrast on a light theme
+    for the warning/serious hues, and color-alone isn't an accessible signal anyway).
+    """
+    tone_class = f" tone-{tone}" if tone in _TONE_CHIP_STYLE else ""
+    chip_html = ""
+    if chip and tone in _TONE_CHIP_STYLE:
+        bg, ink = _TONE_CHIP_STYLE[tone]
+        chip_html = f'<span class="tone-chip" style="background:{bg};color:{ink};">{chip}</span>'
+    foot_html = f'<div class="metric-foot">{foot}</div>' if foot else ""
     st.markdown(
-        f'<div class="metric-card"><div class="metric-label">{label}</div>'
+        f'<div class="metric-card{tone_class}"><div class="metric-label">{label}</div>'
         f'<div class="metric-value">{value}</div>'
-        f'<div class="metric-foot">{foot}</div></div>',
+        f'{chip_html}{foot_html}</div>',
         unsafe_allow_html=True,
     )
 

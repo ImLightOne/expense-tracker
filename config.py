@@ -108,16 +108,53 @@ STOPWORDS = {
 STYLE = """
 <style>
 /* ---------------------------------------------------------------------
-   Minimalist / monochrome theme. Everything here reads its colors from
-   Streamlit's own CSS variables (--background-color, --text-color, etc.)
-   instead of hardcoded hex values, so the whole UI — including the
-   sidebar and custom cards — follows whichever theme the visitor picks
-   from Streamlit's native "Choose app theme" menu (top-right ⋮ menu),
-   light or dark, without needing a separate in-app toggle. Category
-   badges are the one deliberate exception: they keep their per-category
-   colors (config.CATEGORY_COLORS) because that color-coding carries real
-   information (which category is which at a glance), not just decoration.
+   Minimalist / monochrome theme.
+
+   Earlier versions of this stylesheet read colors from var(--background-
+   -color), var(--secondary-background-color), var(--text-color), var(
+   --primary-color) — Streamlit used to expose those as CSS custom
+   properties. As of the Streamlit version this app runs on, it doesn't:
+   those names resolve to nothing anywhere in the page (verified by
+   inspecting the live DOM — no stylesheet or inline style defines them),
+   so every rule that used them silently rendered as if unset: transparent
+   card backgrounds, an invisible accent bar. That's the actual root cause
+   of "important numbers look like plain text" — the cards were there,
+   just paint-free.
+
+   Fix: --app-bg / --app-secondary-bg / --app-text / --app-primary below
+   are our OWN custom properties, hardcoded to Streamlit's actual default
+   theme colors (verified against the live DOM: .stApp's computed
+   background/text and a primary button's background, in both modes), and
+   switched with a plain `@media (prefers-color-scheme: dark)` block. This
+   tracks the visitor's OS/browser preference, which is also what
+   Streamlit's own default "System" theme choice follows — so for anyone
+   who hasn't overridden it, this matches exactly. The one gap: if someone
+   manually forces "Light" or "Dark" from Streamlit's menu against their
+   OS setting, this stylesheet can't see that override (nothing in the
+   page exposes it) and follows the OS instead. Given there's no supported
+   hook to read Streamlit's actual theme choice from custom CSS in this
+   version, this is the closest reliable match available.
+
+   Category badges are the one deliberate exception to "monochrome": they
+   keep their per-category colors (config.CATEGORY_COLORS) because that
+   color-coding carries real information (which category is which at a
+   glance), not just decoration.
    --------------------------------------------------------------------- */
+
+:root {
+  --app-bg: #ffffff;
+  --app-secondary-bg: #f0f2f6;
+  --app-text: #31333f;
+  --app-primary: #ff4b4b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #0e1117;
+    --app-secondary-bg: #262730;
+    --app-text: #fafafa;
+    --app-primary: #ff4b4b;
+  }
+}
 
 .block-container {max-width: 1400px; padding-top: 1rem; padding-bottom: 2rem;}
 
@@ -126,22 +163,55 @@ STYLE = """
 }
 
 .section-card {
-  background: var(--secondary-background-color);
+  background: var(--app-secondary-bg);
   border: 1px solid rgba(128,128,128,.15);
   border-radius: 14px; padding: 1.1rem; margin-bottom: 1rem;
 }
 
+/* Stat tiles (metric_card() in common.py). These carry the app's headline
+   numbers, so they get real elevation instead of blending into the page:
+   a filled surface, a visible border, a soft shadow, and a colored top
+   accent bar. The bar is var(--app-primary) by default, or a fixed status
+   hex (never themed) when the caller passes a tone — status color lives
+   in the accent bar + chip only, never the value text itself, so
+   contrast never depends on which theme is active. */
 .metric-card {
-  background: var(--secondary-background-color);
-  color: var(--text-color);
-  border: 1px solid rgba(128,128,128,.15);
-  border-left: 3px solid var(--primary-color);
-  border-radius: 14px; padding: 1rem; min-height: 118px;
+  position: relative;
+  overflow: hidden;
+  background: var(--app-secondary-bg);
+  color: var(--app-text);
+  border: 1px solid rgba(128,128,128,.28);
+  border-radius: 16px;
+  padding: 1.15rem 1.3rem 1.2rem;
+  min-height: 130px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
 }
-.metric-label {font-size:.9rem; opacity:.7; margin-bottom:.35rem;}
-.metric-value {font-size:1.6rem; font-weight:700; line-height:1.1;}
-.metric-foot {font-size:.85rem; opacity:.65; margin-top:.4rem;}
+.metric-card::before {
+  /* Neutral default is gray, not var(--app-primary) — Streamlit's default
+     primary color happens to be a red, which next to the tone-critical
+     bar (also red) made every untoned tile read as if it were also
+     flagged. Color on this bar is reserved for actual tone status. */
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  background: rgba(128,128,128,.55);
+}
+.metric-card.tone-good::before     {background:#0ca30c; opacity:1;}
+.metric-card.tone-warning::before  {background:#fab219; opacity:1;}
+.metric-card.tone-serious::before  {background:#ec835a; opacity:1;}
+.metric-card.tone-critical::before {background:#d03b3b; opacity:1;}
+
+.metric-label {
+  font-size:.74rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+  opacity:.62; margin-bottom:.45rem;
+}
+.metric-value {font-size:1.9rem; font-weight:700; line-height:1.1; letter-spacing:-.01em;}
+.metric-foot {font-size:.85rem; opacity:.65; margin-top:.5rem;}
 .small-muted {opacity:.68; font-size:.9rem;}
+
+.tone-chip {
+  display:inline-block; margin-top:.55rem; padding:.24rem .68rem; border-radius:999px;
+  font-size:.76rem; font-weight:700;
+}
 
 .badge {
   display:inline-block; padding:.2rem .55rem; border-radius:999px;
@@ -152,12 +222,12 @@ STYLE = """
   display:flex; justify-content:space-between; align-items:center; gap:10px;
   flex-wrap: wrap;
   padding:.75rem; border:1px solid rgba(128,128,128,.15); border-radius:12px;
-  margin-bottom:.5rem; background:var(--secondary-background-color);
+  margin-bottom:.5rem; background:var(--app-secondary-bg);
 }
 
 .soft-box {
   border:1px dashed rgba(128,128,128,.28); border-radius:14px; padding:1rem;
-  background:var(--secondary-background-color);
+  background:var(--app-secondary-bg);
 }
 
 /* ---------------------------------------------------------------------
@@ -168,10 +238,11 @@ STYLE = """
 @media (max-width: 640px) {
   .block-container {padding-left: .75rem; padding-right: .75rem;}
   .section-card {padding: .85rem; border-radius: 12px;}
-  .metric-card {padding: .85rem; min-height: unset;}
-  .metric-value {font-size:1.35rem;}
-  .metric-label {font-size:.82rem;}
+  .metric-card {padding: .9rem 1rem 1rem; min-height: unset;}
+  .metric-value {font-size:1.5rem;}
+  .metric-label {font-size:.7rem;}
   .metric-foot {font-size:.78rem;}
+  .tone-chip {font-size:.7rem; padding:.2rem .55rem;}
   .feed-row {padding:.6rem; flex-direction: column; align-items: flex-start;}
   .badge {font-size:.72rem;}
 }

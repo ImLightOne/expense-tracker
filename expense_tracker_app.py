@@ -34,6 +34,7 @@ from analytics import apply_filters, enrich_expenses
 from common import (
     consume_email_link,
     get_date_range_presets,
+    inject_style,
     l,
     login_user,
     logout_user,
@@ -59,6 +60,10 @@ from views import (
     subscriptions,
 )
 
+
+# Re-injects the <style> block on every run (see inject_style()'s docstring
+# in common.py for why this can't just live at common.py's module level).
+inject_style()
 
 # =========================================================
 # SIDEBAR / SESSION
