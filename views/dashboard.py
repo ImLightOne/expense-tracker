@@ -151,9 +151,13 @@ def render(ctx: dict) -> None:
             format_func=lcat,
         )
         category_budget_inputs = {}
+        # Hoisted out of the loop below (was called once per selected
+        # category — get_rates_map() is cached, so this was already cheap
+        # after the first hit, but there's no reason to call it N times when
+        # the rate doesn't change per category).
+        eur_to_display_rate = get_rates_map("EUR").get(display_currency, 1.0)
         for cat in selected_budget_categories:
-            current_limit_display = get_rates_map("EUR").get(display_currency, 1.0)
-            current_limit_display = category_budgets.get(cat, 0.0) * current_limit_display
+            current_limit_display = category_budgets.get(cat, 0.0) * eur_to_display_rate
             category_budget_inputs[cat] = st.number_input(
                 f"{l('Monthly limit for', 'Місячний ліміт для', 'Monatslimit für')} {lcat(cat)} ({display_currency})",
                 min_value=0.0,
@@ -168,7 +172,7 @@ def render(ctx: dict) -> None:
                 set_category_budget(user_id, cat, amount_eur)
             st.success(l("Category budgets saved.", "Бюджети категорій збережено.", "Kategorie-Budgets gespeichert."))
             rerun()
-        budget_status = check_category_budgets(expense_df, get_category_budgets(user_id), display_currency)
+        budget_status = check_category_budgets(expense_df, category_budgets, display_currency)
         if budget_status:
             st.markdown(f"**{l('Category budget usage', 'Використання бюджетів категорій', 'Nutzung der Kategorie-Budgets')}**")
             for row in budget_status:
