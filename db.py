@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
+import streamlit as st
 from supabase import Client, create_client
 
 from config import DEFAULT_CATEGORIES, INCOME_CATEGORIES
@@ -75,7 +76,16 @@ def get_profile_username(user_id: str) -> Optional[str]:
 # USER-DEFINED CATEGORIES (additive to config.py's built-in lists)
 # =========================================================
 
+@st.cache_data(ttl=60)
 def get_custom_categories(user_id: str, tx_type: str = "expense") -> List[str]:
+    """Cached for 60s (see the module docstring-style note above get_rates_map
+    for why: Streamlit reruns this whole script on every widget interaction,
+    so an uncached read here means a fresh Supabase round trip on every
+    click, not just on real data changes). add_custom_category/
+    delete_custom_category explicitly clear this cache on write, so a
+    user's own change is never hidden behind the 60s TTL — the TTL only
+    bounds staleness from *other* sessions/tabs.
+    """
     res = (
         supabase.table("categories")
         .select("name")
@@ -87,6 +97,7 @@ def get_custom_categories(user_id: str, tx_type: str = "expense") -> List[str]:
     return [str(row["name"]) for row in (res.data or [])]
 
 
+@st.cache_data(ttl=60)
 def get_category_options(user_id: str, tx_type: str = "expense") -> List[str]:
     """Built-in defaults (config.py) followed by the user's own categories.
 
@@ -124,13 +135,18 @@ def add_custom_category(user_id: str, name: str, tx_type: str = "expense") -> tu
         if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
             return False, "duplicate"
         return False, "error"
+    get_custom_categories.clear()
+    get_category_options.clear()
     return True, "ok"
 
 
 def delete_custom_category(user_id: str, name: str, tx_type: str = "expense") -> None:
     supabase.table("categories").delete().eq("user_id", user_id).eq("type", tx_type).eq("name", name).execute()
+    get_custom_categories.clear()
+    get_category_options.clear()
 
 
+@st.cache_data(ttl=60)
 def get_category_colors(user_id: str) -> Dict[str, str]:
     """User color overrides for any category (built-in or custom), across
     both expense and income, flattened into one {name: "#hex"} dict — this
@@ -146,13 +162,25 @@ def set_category_color(user_id: str, name: str, tx_type: str, color: str) -> Non
         {"user_id": user_id, "name": name, "type": tx_type, "color": color},
         on_conflict="user_id,type,name",
     ).execute()
+    get_category_colors.clear()
 
 
 def reset_category_color(user_id: str, name: str, tx_type: str) -> None:
     supabase.table("category_colors").delete().eq("user_id", user_id).eq("type", tx_type).eq("name", name).execute()
+    get_category_colors.clear()
 
 
+@st.cache_data(ttl=3600)
 def get_rates_map(base: str = "EUR") -> Dict[str, float]:
+    """Cached for 1 hour — this is the single biggest performance fix in this
+    pass. Uncached, every call here made 2 external HTTP requests (Frankfurter
+    + NBU, up to 8s timeout each) with no caching at all. convert_to_eur() and
+    convert_from_eur() both call this, and enrich_expenses() (analytics.py)
+    calls convert_from_eur() once per transaction row via .apply() — so on a
+    production account with 100+ transactions, a single dashboard render was
+    issuing 100+ *sequential* external HTTP round trips. FX rates don't need
+    to be fresher than an hour for this app's purposes.
+    """
     base = base.upper()
     fallback = {
         "EUR": {"EUR": 1.0, "USD": 1.08, "UAH": 50.0},
@@ -212,6 +240,7 @@ def convert_from_eur(amount_eur: float, out_currency: str) -> float:
     return round(safe_float(amount_eur) * safe_float(get_rates_map("EUR").get(out_currency, 1.0), 1.0), 2)
 
 
+@st.cache_data(ttl=60)
 def load_expenses(user_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None) -> pd.DataFrame:
     """Load a user's transactions, optionally bounded to a date range.
 
@@ -246,6 +275,7 @@ def load_expenses(user_id: str, start_date: Optional[date] = None, end_date: Opt
     return df.sort_values(["date", "id"], ascending=[False, False]).reset_index(drop=True)
 
 
+@st.cache_data(ttl=60)
 def load_savings(user_id: str) -> pd.DataFrame:
     res = supabase.table("savings").select("*").eq("user_id", user_id).order("id", desc=True).execute()
     df = pd.DataFrame(res.data)
@@ -263,16 +293,20 @@ def add_savings_goal(user_id: str, name: str, target: float, saved: float) -> No
         "target": float(target),
         "saved": float(saved),
     }).execute()
+    load_savings.clear()
 
 
 def update_savings_progress(user_id: str, goal_id: int, new_saved: float) -> None:
     supabase.table("savings").update({"saved": float(new_saved)}).eq("id", int(goal_id)).eq("user_id", user_id).execute()
+    load_savings.clear()
 
 
 def delete_savings_goal(user_id: str, goal_id: int) -> None:
     supabase.table("savings").delete().eq("id", int(goal_id)).eq("user_id", user_id).execute()
+    load_savings.clear()
 
 
+@st.cache_data(ttl=60)
 def get_monthly_limit(user_id: str) -> Optional[float]:
     res = supabase.table("budgets").select("monthly_limit").eq("user_id", user_id).limit(1).execute()
     return float(res.data[0]["monthly_limit"]) if res.data else None
@@ -285,8 +319,10 @@ def set_monthly_limit(user_id: str, amount_eur: float) -> None:
         supabase.table("budgets").update(payload).eq("user_id", user_id).execute()
     else:
         supabase.table("budgets").insert(payload).execute()
+    get_monthly_limit.clear()
 
 
+@st.cache_data(ttl=60)
 def get_category_budgets(user_id: str) -> dict[str, float]:
     res = (
         supabase.table("category_budgets")
@@ -311,6 +347,7 @@ def set_category_budget(user_id: str, category: str, amount_eur: float) -> None:
         payload,
         on_conflict="user_id,category",
     ).execute()
+    get_category_budgets.clear()
 
 
 def execute_expense_write(write_fn, payload: Dict[str, object]) -> None:
@@ -338,6 +375,7 @@ def add_transaction(user_id: str, expense_date: date, amount: float, category: s
         "type": tx_type,
     }
     execute_expense_write(lambda p: supabase.table("expenses").insert(p).execute(), payload)
+    load_expenses.clear()
 
 
 def add_expense(user_id: str, expense_date: date, amount: float, category: str, currency: str, note: str = "", subscription: int = 0, recurrence: str = "monthly") -> None:
@@ -363,6 +401,7 @@ def update_transaction(user_id: str, expense_id: int, expense_date: date, origin
         lambda p: supabase.table("expenses").update(p).eq("id", int(expense_id)).eq("user_id", user_id).execute(),
         payload,
     )
+    load_expenses.clear()
 
 
 def update_expense(user_id: str, expense_id: int, expense_date: date, original_amount: float, original_currency: str,
@@ -372,6 +411,7 @@ def update_expense(user_id: str, expense_id: int, expense_date: date, original_a
 
 def delete_expense(user_id: str, expense_id: int) -> None:
     supabase.table("expenses").delete().eq("id", int(expense_id)).eq("user_id", user_id).execute()
+    load_expenses.clear()
 
 
 def upsert_recurring_transactions(user_id: str) -> int:
@@ -430,4 +470,6 @@ def upsert_recurring_transactions(user_id: str) -> int:
                 "note": str(row["note"]),
             }).execute()
             created += 1
+    if created:
+        load_expenses.clear()
     return created

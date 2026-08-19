@@ -364,16 +364,14 @@ def render_set_password_screen() -> None:
 
 
 # =========================================================
-# FX RATES (cached)
+# FX RATES
 # =========================================================
-
-@st.cache_data(ttl=3600)
-def get_rates_map_cached(base: str = "EUR"):
-    return db_get_rates_map(base)
-
-
-def get_rates_map(base: str = "EUR"):
-    return get_rates_map_cached(base)
+# db.get_rates_map is itself @st.cache_data(ttl=3600) now (moved there so
+# every caller benefits, including the per-row conversions in
+# analytics.enrich_expenses — those were the actual hot path, not the calls
+# made directly from view code that this module used to wrap). Re-exported
+# under this name since views/*.py already import get_rates_map from here.
+get_rates_map = db_get_rates_map
 
 
 def get_date_range_presets(min_date: date, max_date: date) -> Dict[str, Tuple[date, date]]:

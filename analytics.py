@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
+import db
 from config import CATEGORY_COLORS
 from db import convert_from_eur
 from utils import extract_merchant, month_key, safe_float
@@ -28,9 +29,30 @@ def enrich_expenses(df: pd.DataFrame, display_currency: str) -> pd.DataFrame:
             out[col] = pd.Series(dtype="Int64")
         return out
     out = df.copy()
-    out["display_amount"] = out["amount"].apply(lambda x: convert_from_eur(x, display_currency))
+    # Vectorized rather than the previous row-by-row .apply(convert_from_eur):
+    # convert_from_eur() calls get_rates_map(), which is now cached, but even
+    # a cached-dict-lookup-per-row adds up needlessly across hundreds of
+    # transactions when the FX rate is constant per currency. display_amount
+    # has exactly one target currency for the whole frame; original_amount
+    # varies by each row's own currency, so that one groups by currency
+    # (typically 1-3 distinct values) and looks the rate up once per group
+    # instead of once per row.
+    display_currency = (display_currency or "EUR").upper()
+    # Raw (unrounded) rates, straight from get_rates_map — going through
+    # convert_from_eur(1.0, cur) instead would round the *rate* itself to 2
+    # decimals before multiplying by amount, which is a precision bug (e.g.
+    # a 1.0834 rate would truncate to 1.08 for every single row).
+    eur_rates = db.get_rates_map("EUR")
+    display_rate = 1.0 if display_currency == "EUR" else safe_float(eur_rates.get(display_currency, 1.0), 1.0)
+    out["display_amount"] = (out["amount"] * display_rate).round(2)
     out["display_abs_amount"] = out["display_amount"].abs()
-    out["original_amount"] = out.apply(lambda r: abs(convert_from_eur(r["amount"], r["currency"])), axis=1)
+
+    row_currencies = out["currency"].astype(str).str.upper().replace("", "EUR")
+    rate_by_currency = {
+        cur: (1.0 if cur == "EUR" else safe_float(eur_rates.get(cur, 1.0), 1.0))
+        for cur in row_currencies.unique()
+    }
+    out["original_amount"] = (out["amount"].abs() * row_currencies.map(rate_by_currency)).round(2)
     out["date_only"] = out["date"].dt.date
     out["month"] = out["date"].dt.to_period("M").astype(str)
     out["year"] = out["date"].dt.year

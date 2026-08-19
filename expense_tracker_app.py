@@ -137,9 +137,20 @@ if not st.session_state.user_id:
     st.stop()
 
 user_id = require_login()
-created_subs = upsert_recurring_transactions(user_id)
-if created_subs:
-    st.toast(f"{created_subs} {l('recurring transaction(s) added.', 'повторюваних транзакцій додано.', 'wiederkehrende Transaktion(en) hinzugefügt.')}")
+# Generating this period's recurring-transaction occurrences involves an
+# unbounded history load plus one Supabase existence-check per stale
+# subscription — real work worth doing once, not on every rerun (Streamlit
+# reruns this whole script on every widget interaction). A subscription's
+# occurrence only needs to be (re)checked once per calendar day, so gate it
+# on a date-keyed session flag rather than a plain "ran once" bool — that
+# keeps a session open across midnight self-healing instead of getting
+# stuck on yesterday's check forever.
+recurring_sync_key = f"_recurring_synced_{date.today().isoformat()}"
+if not st.session_state.get(recurring_sync_key):
+    created_subs = upsert_recurring_transactions(user_id)
+    st.session_state[recurring_sync_key] = True
+    if created_subs:
+        st.toast(f"{created_subs} {l('recurring transaction(s) added.', 'повторюваних транзакцій додано.', 'wiederkehrende Transaktion(en) hinzugefügt.')}")
 
 expense_categories = get_category_options(user_id, "expense")
 income_categories = get_category_options(user_id, "income")
