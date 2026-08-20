@@ -1,0 +1,36 @@
+# Custom theme — replaces Streamlit's default red primaryColor everywhere
+# native widgets render (buttons, checkboxes, selected radio/tabs, sliders,
+# focus rings, links, dataframe headers), not just the app's own custom
+# .metric-card/.section-card HTML. Before this file existed, config.py's
+# STYLE block only re-themed our own hand-rolled HTML — every native
+# Streamlit control (st.button, st.selectbox, st.checkbox, ...) still used
+# Streamlit's built-in default (a red primaryColor), which visibly clashed
+# with the app's own accent and read as "unbranded default Streamlit app"
+# no matter how much custom CSS sat on top of it.
+#
+# [theme.light] / [theme.dark] are resolved automatically by Streamlit's
+# built-in theme switcher (Settings → choose app theme: Light / Dark / Use
+# system setting) — "Use system setting" is the default, matching the same
+# prefers-color-scheme behavior config.py's own STYLE block already follows,
+# so the two systems agree instead of fighting each other.
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+baseRadius = "small"
+buttonRadius = "small"
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#1d4ed8"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f5f9"
+textColor = "#1a1d29"
+borderColor = "#e2e5ec"
+linkColor = "#1d4ed8"
+
+[theme.dark]
+primaryColor = "#5b8cff"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#fafafa"
+borderColor = "#3a3d47"
+linkColor = "#5b8cff"
