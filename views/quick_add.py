@@ -10,18 +10,37 @@ from utils import format_money, parse_quick_add
 
 def render(ctx: dict) -> None:
     user_id = ctx["user_id"]
-    expense_df = ctx["expense_df"]
+    # Smart category matching needs a *stable* pool of past transactions to
+    # learn from. ctx["expense_df"] looked like the obvious choice but is
+    # actually the dashboard's currently-filtered view (bound by whatever
+    # date range / category / search text the sidebar happens to have
+    # selected right now, from apply_filters() in expense_tracker_app.py) —
+    # so the exact same Quick Add text used to suggest a different category
+    # depending on unrelated sidebar filter state, which is what read as
+    # "random" behavior. ctx["base_display_df"] is the full (unfiltered by
+    # sidebar) history within the loaded window, so suggestions here now
+    # depend only on what was actually typed.
+    history_df = ctx.get("base_display_df")
     expense_categories = ctx["expense_categories"]
     income_categories = ctx["income_categories"]
+
+    # Clearing the field after a successful save (below) has to happen
+    # *before* the keyed text_input widget is instantiated in a run, not
+    # after — Streamlit raises StreamlitAPIException if session_state for a
+    # widget's key is written to later in the same run it was instantiated
+    # in, even right before a rerun(). Routing the clear through this flag,
+    # checked here at the top before the widget exists yet, avoids that.
+    if st.session_state.get("_clear_quick_add"):
+        st.session_state["smart_note"] = ""
+        st.session_state["_clear_quick_add"] = False
 
     section(l("Quick Add", "Швидке додавання", "Schnell hinzufügen"), l("Paste a short sentence, preview the parsed entry, then save it.", "Встав коротке речення, переглянь розбір і збережи.", "Füge einen kurzen Satz ein, prüfe die Erkennung und speichere dann."))
     quick_text = st.text_input(
         l("Quick entry", "Швидкий запис", "Schnelleingabe"),
-        value=st.session_state.smart_note,
+        key="smart_note",
         placeholder="Examples: 2026-03-17 8.5 EUR coffee at Starbucks | 17.03 24.90 groceries | 12 usd uber",
     )
-    preview = parse_quick_add(quick_text, history_df=expense_df)
-    st.session_state.smart_note = quick_text
+    preview = parse_quick_add(quick_text, history_df=history_df)
     if quick_text and preview["ok"]:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -63,7 +82,7 @@ def render(ctx: dict) -> None:
                 recurrence,
             )
             st.success(l("Quick entry saved.", "Швидкий запис збережено.", "Schnelleingabe gespeichert."))
-            st.session_state.smart_note = ""
+            st.session_state["_clear_quick_add"] = True
             rerun()
     elif quick_text:
         st.warning(preview["error"])
