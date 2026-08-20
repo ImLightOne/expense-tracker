@@ -29,6 +29,41 @@ from db import (
 )
 from utils import format_money, safe_float
 
+# Inline SVG brand mark (rounded square + three ascending bars — a plain
+# growth/analytics glyph). Replaces the old "💸" emoji used as a stand-in
+# logo everywhere (sidebar header, pre-login hero, browser tab icon): a
+# generic Unicode emoji doing double duty as a product's visual identity
+# is one of the more obvious "nobody designed this" tells. fill uses
+# var(--app-primary) so the mark automatically follows the same light/dark
+# brand color as the rest of the theme (config.py's STYLE block), with no
+# separate dark-mode variant needed. The favicon (assets/favicon.png,
+# passed to st.set_page_config) is a static PNG render of the same design,
+# since browser tab icons can't use CSS variables.
+BRAND_MARK_SVG = (
+    '<svg viewBox="0 0 256 256" width="{size}" height="{size}" '
+    'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="logo">'
+    '<rect width="256" height="256" rx="61" fill="var(--app-primary)"/>'
+    '<rect x="41" y="163" width="43" height="52" rx="12" fill="#ffffff"/>'
+    '<rect x="107" y="125" width="43" height="90" rx="12" fill="#ffffff"/>'
+    '<rect x="173" y="86" width="43" height="129" rx="12" fill="#ffffff"/>'
+    '</svg>'
+)
+
+
+def brand_header(title: str, size: int = 28, hero: bool = False) -> None:
+    """Render the brand mark next to the wordmark text. Used in the sidebar
+    header (small) and the pre-login hero (large, hero=True) so both places
+    share one identity instead of the sidebar using an emoji+text markdown
+    heading and the hero using a different plain st.title().
+    """
+    css_class = "brand-header brand-hero" if hero else "brand-header"
+    st.markdown(
+        f'<div class="{css_class}">{BRAND_MARK_SVG.format(size=size)}'
+        f'<span class="brand-wordmark">{title}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def inject_style() -> None:
     """Injects the app's <style> block. Must be called explicitly from the
     main script body on every run — NOT left as module-level code here.
@@ -339,7 +374,7 @@ def render_set_password_screen() -> None:
     confirm_password = st.text_input(
         l("Confirm password", "Підтвердь пароль", "Passwort bestätigen"), type="password", key="set_pw_confirm"
     )
-    if st.button(l("Save password", "Зберегти пароль", "Passwort speichern"), use_container_width=True):
+    if st.button(l("Save password", "Зберегти пароль", "Passwort speichern"), use_container_width=True, type="primary"):
         if len(new_password) < 8 or not (any(c.isalpha() for c in new_password) and any(c.isdigit() for c in new_password)):
             st.error(l(
                 "Password must be at least 8 characters and include a letter and a number.",
@@ -431,8 +466,8 @@ def generate_smart_insights(expense_df: pd.DataFrame, income_df: pd.DataFrame, s
 
 TRANSLATIONS = {
     "en": {
-        "app_title": "💸 Expense Tracker Pro+",
-        "sidebar_title": "## 💸 Expense Tracker Pro+",
+        "app_title": "Expense Tracker Pro+",
+        "sidebar_title": "Expense Tracker Pro+",
         "sidebar_caption": "Improved version with faster entry, deeper analytics, bulk import, duplicate detection, and smarter subscription insights.",
         "language": "Language",
         "logged_in_as": "Logged in as {username}",
@@ -470,6 +505,11 @@ TRANSLATIONS = {
         "show_full_history": "Load full history",
         "show_full_history_help": "By default only the last {days} days load, to keep the app fast. Turn this on to include older transactions (search, edit, and charts will include everything, but rendering may be slower).",
         "navigation": "Navigation",
+        "nav_group_overview": "Overview",
+        "nav_group_add": "Add",
+        "nav_group_manage": "Manage",
+        "nav_group_insights": "Insights",
+        "nav_group_more": "More",
         "dashboard": "Dashboard",
         "add_expense": "Add Expense",
         "manage_expenses": "Manage Expenses",
@@ -489,8 +529,8 @@ TRANSLATIONS = {
         "consistency": "Consistency",
     },
     "uk": {
-        "app_title": "💸 Трекер витрат Pro+",
-        "sidebar_title": "## 💸 Трекер витрат Pro+",
+        "app_title": "Трекер витрат Pro+",
+        "sidebar_title": "Трекер витрат Pro+",
         "sidebar_caption": "Покращена версія з швидким додаванням, глибшою аналітикою, імпортом, пошуком дублікатів і розумнішими підписками.",
         "language": "Мова",
         "logged_in_as": "Ви увійшли як {username}",
@@ -528,6 +568,11 @@ TRANSLATIONS = {
         "show_full_history": "Завантажити всю історію",
         "show_full_history_help": "За замовчуванням завантажуються лише останні {days} днів, щоб застосунок працював швидко. Увімкни, щоб включити старіші транзакції (пошук, редагування й графіки враховуватимуть усе, але може працювати повільніше).",
         "navigation": "Навігація",
+        "nav_group_overview": "Огляд",
+        "nav_group_add": "Додати",
+        "nav_group_manage": "Керування",
+        "nav_group_insights": "Аналітика",
+        "nav_group_more": "Ще",
         "dashboard": "Дашборд",
         "add_expense": "Додати витрату",
         "manage_expenses": "Керування витратами",
@@ -547,8 +592,8 @@ TRANSLATIONS = {
         "consistency": "Стабільність",
     },
     "de": {
-        "app_title": "💸 Ausgaben-Tracker Pro+",
-        "sidebar_title": "## 💸 Ausgaben-Tracker Pro+",
+        "app_title": "Ausgaben-Tracker Pro+",
+        "sidebar_title": "Ausgaben-Tracker Pro+",
         "sidebar_caption": "Verbesserte Version mit schneller Erfassung, tieferen Analysen, Import, Duplikat-Erkennung und intelligenteren Abos.",
         "language": "Sprache",
         "logged_in_as": "Angemeldet als {username}",
@@ -586,6 +631,11 @@ TRANSLATIONS = {
         "show_full_history": "Vollständige Historie laden",
         "show_full_history_help": "Standardmäßig werden nur die letzten {days} Tage geladen, damit die App schnell bleibt. Aktiviere dies, um ältere Transaktionen einzubeziehen (Suche, Bearbeitung und Diagramme berücksichtigen dann alles, das Laden kann aber langsamer sein).",
         "navigation": "Navigation",
+        "nav_group_overview": "Übersicht",
+        "nav_group_add": "Hinzufügen",
+        "nav_group_manage": "Verwalten",
+        "nav_group_insights": "Analysen",
+        "nav_group_more": "Mehr",
         "dashboard": "Dashboard",
         "add_expense": "Ausgabe hinzufügen",
         "manage_expenses": "Ausgaben verwalten",

@@ -108,59 +108,81 @@ STOPWORDS = {
 STYLE = """
 <style>
 /* ---------------------------------------------------------------------
-   Minimalist / monochrome theme.
+   "Confident & modern" theme — Wave 3, iteration 7.
 
-   Earlier versions of this stylesheet read colors from var(--background-
-   -color), var(--secondary-background-color), var(--text-color), var(
-   --primary-color) — Streamlit used to expose those as CSS custom
-   properties. As of the Streamlit version this app runs on, it doesn't:
-   those names resolve to nothing anywhere in the page (verified by
-   inspecting the live DOM — no stylesheet or inline style defines them),
-   so every rule that used them silently rendered as if unset: transparent
-   card backgrounds, an invisible accent bar. That's the actual root cause
-   of "important numbers look like plain text" — the cards were there,
-   just paint-free.
+   One deliberate brand color (a deep, saturated blue — #1d4ed8 light /
+   #5b8cff dark) on a neutral background, crisp small-radius shapes, no
+   gradients, no decorative blur/glow. This is a full swap of what used to
+   be a "minimalist / monochrome" palette borrowed from Streamlit's own
+   default colors (including its default red primaryColor) — that default
+   look is also exactly what made the app read as an unstyled/default
+   Streamlit app rather than its own product. --app-primary here is now
+   the SAME hex as .streamlit/config.toml's [theme.light]/[theme.dark]
+   primaryColor, so native widgets (st.button, st.checkbox, focus rings,
+   links) and this stylesheet's own custom HTML (.metric-card accents,
+   the brand mark) finally agree on one accent instead of two clashing
+   ones (custom CSS's old accent vs. Streamlit's default red button).
 
-   Fix: --app-bg / --app-secondary-bg / --app-text / --app-primary below
-   are our OWN custom properties, hardcoded to Streamlit's actual default
-   theme colors (verified against the live DOM: .stApp's computed
-   background/text and a primary button's background, in both modes), and
-   switched with a plain `@media (prefers-color-scheme: dark)` block. This
-   tracks the visitor's OS/browser preference, which is also what
-   Streamlit's own default "System" theme choice follows — so for anyone
-   who hasn't overridden it, this matches exactly. The one gap: if someone
-   manually forces "Light" or "Dark" from Streamlit's menu against their
-   OS setting, this stylesheet can't see that override (nothing in the
-   page exposes it) and follows the OS instead. Given there's no supported
-   hook to read Streamlit's actual theme choice from custom CSS in this
-   version, this is the closest reliable match available.
+   These are still OUR OWN custom properties (not Streamlit's var(--
+   primary-color) etc, which don't exist in this Streamlit version's DOM —
+   see git history for how that was confirmed), switched with a plain
+   `@media (prefers-color-scheme: dark)` block that tracks the same OS/
+   browser preference Streamlit's own "Use system setting" theme option
+   defaults to.
 
-   Category badges are the one deliberate exception to "monochrome": they
-   keep their per-category colors (config.CATEGORY_COLORS) because that
-   color-coding carries real information (which category is which at a
-   glance), not just decoration.
+   Category badges are the one deliberate exception to "one brand color":
+   they keep their per-category colors (config.CATEGORY_COLORS) because
+   that color-coding carries real information (which category is which at
+   a glance), not just decoration — and are visually distinct from the
+   brand color by context (small pills vs. buttons/accents/nav), not hue
+   alone.
    --------------------------------------------------------------------- */
 
 :root {
   --app-bg: #ffffff;
-  --app-secondary-bg: #f0f2f6;
-  --app-text: #31333f;
-  --app-primary: #ff4b4b;
+  --app-secondary-bg: #f4f5f9;
+  --app-text: #1a1d29;
+  --app-primary: #1d4ed8;
+  --app-border: rgba(15,23,42,.12);
+  --app-radius: 10px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --app-bg: #0e1117;
     --app-secondary-bg: #262730;
     --app-text: #fafafa;
-    --app-primary: #ff4b4b;
+    --app-primary: #5b8cff;
+    --app-border: rgba(255,255,255,.14);
   }
 }
 
-.block-container {max-width: 1400px; padding-top: 1rem; padding-bottom: 2rem;}
+/* padding-top clears Streamlit's own fixed header bar (the top strip that
+   holds the "⋮" menu / Deploy button): that header is ~60px tall and
+   position:absolute, so it does not take up document flow space — any
+   content sitting at the very top of .block-container physically renders
+   underneath it unless padding pushes past it. The previous 1rem (16px)
+   was never really enough (verified live: the app's own heading text was
+   partially hidden behind the header, top of the letters clipped flat);
+   it went unnoticed only because a plain st.title() call's default font
+   size made the clipped sliver easy to miss. Caught while adding the
+   larger brand mark + wordmark header, which made the clipping obvious. */
+.block-container {max-width: 1400px; padding-top: 4rem; padding-bottom: 2rem;}
 
 [data-testid='stSidebar'] {
-  border-right: 1px solid rgba(128,128,128,.18);
+  border-right: 1px solid var(--app-border);
 }
+
+/* Brand mark + wordmark, used in the sidebar header and the pre-login
+   hero (see common.py's brand_header()). Replaces the old plain-emoji
+   "💸 Expense Tracker Pro+" text — a hand-drawn geometric mark (rounded
+   square, three ascending bars) reads as a designed identity instead of a
+   generic Unicode emoji standing in for a logo. */
+.brand-header {
+  display:flex; align-items:center; gap:.55rem; margin-bottom:.15rem;
+}
+.brand-header svg {flex-shrink:0; display:block;}
+.brand-wordmark {font-weight:800; font-size:1.15rem; letter-spacing:-.01em; color:var(--app-text);}
+.brand-header.brand-hero .brand-wordmark {font-size:1.7rem;}
 
 /* Section "cards" (common.py's section()/end_section()). Targets the real
    st.container(key="section_...") wrapper element by its Streamlit-assigned
@@ -175,49 +197,47 @@ STYLE = """
    genuinely wraps the section on screen. */
 [class*="st-key-section_"] {
   background: var(--app-secondary-bg);
-  border: 1px solid rgba(128,128,128,.15);
-  border-radius: 14px; padding: 1.1rem; margin-bottom: 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius); padding: 1.1rem; margin-bottom: 1rem;
 }
 
-/* Stat tiles (metric_card() in common.py). These carry the app's headline
-   numbers, so they get real elevation instead of blending into the page:
-   a filled surface, a visible border, a soft shadow, and a colored top
-   accent bar. The bar is var(--app-primary) by default, or a fixed status
-   hex (never themed) when the caller passes a tone — status color lives
-   in the accent bar + chip only, never the value text itself, so
-   contrast never depends on which theme is active. */
+/* Stat tiles (metric_card() in common.py). Crisp, flat surfaces — a
+   filled background and a hairline border carry the separation from the
+   page; no drop shadow, which used to read as a slightly "soft/AI-
+   dashboard" default rather than a deliberate, confident flat design (the
+   Linear/Stripe/Vercel school, not the neumorphic-card school). The top
+   accent bar is reserved for actual status (tone-good/warning/serious/
+   critical) — untoned cards render with no bar at all rather than a
+   neutral gray one, so a status bar always means something instead of
+   every single tile having one "just in case". */
 .metric-card {
   /* margin-bottom is the important part here: the two metric rows on the
      dashboard are two separate st.columns() calls stacked by Streamlit's
      own layout, and its default gap between them was thin enough that the
-     cards' box-shadow (which paints outside the card's own border box —
-     overflow:hidden on this element does not clip its own shadow) read as
-     touching/overlapping the row below. An explicit margin guarantees a
-     real gap regardless of Streamlit's own spacing between blocks. */
+     cards' accent bar could read as touching/overlapping the row below.
+     An explicit margin guarantees a real gap regardless of Streamlit's
+     own spacing between blocks. */
   position: relative;
   overflow: hidden;
   background: var(--app-secondary-bg);
   color: var(--app-text);
-  border: 1px solid rgba(128,128,128,.28);
-  border-radius: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
   padding: 1.15rem 1.3rem 1.2rem;
   margin-bottom: 1.1rem;
   min-height: 130px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.12);
 }
-.metric-card::before {
-  /* Neutral default is gray, not var(--app-primary) — Streamlit's default
-     primary color happens to be a red, which next to the tone-critical
-     bar (also red) made every untoned tile read as if it were also
-     flagged. Color on this bar is reserved for actual tone status. */
+.metric-card.tone-good::before,
+.metric-card.tone-warning::before,
+.metric-card.tone-serious::before,
+.metric-card.tone-critical::before {
   content: "";
-  position: absolute; top: 0; left: 0; right: 0; height: 4px;
-  background: rgba(128,128,128,.55);
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
 }
-.metric-card.tone-good::before     {background:#0ca30c; opacity:1;}
-.metric-card.tone-warning::before  {background:#fab219; opacity:1;}
-.metric-card.tone-serious::before  {background:#ec835a; opacity:1;}
-.metric-card.tone-critical::before {background:#d03b3b; opacity:1;}
+.metric-card.tone-good::before     {background:#0ca30c;}
+.metric-card.tone-warning::before  {background:#fab219;}
+.metric-card.tone-serious::before  {background:#ec835a;}
+.metric-card.tone-critical::before {background:#d03b3b;}
 
 .metric-label {
   font-size:.74rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
@@ -240,12 +260,12 @@ STYLE = """
 .feed-row {
   display:flex; justify-content:space-between; align-items:center; gap:10px;
   flex-wrap: wrap;
-  padding:.75rem; border:1px solid rgba(128,128,128,.15); border-radius:12px;
+  padding:.75rem; border:1px solid var(--app-border); border-radius: var(--app-radius);
   margin-bottom:.5rem; background:var(--app-secondary-bg);
 }
 
 .soft-box {
-  border:1px dashed rgba(128,128,128,.28); border-radius:14px; padding:1rem;
+  border:1px dashed var(--app-border); border-radius: var(--app-radius); padding:1rem;
   background:var(--app-secondary-bg);
 }
 

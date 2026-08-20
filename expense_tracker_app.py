@@ -13,7 +13,10 @@ from datetime import date, timedelta
 
 import streamlit as st
 
-st.set_page_config(page_title="Expense Tracker Pro+", page_icon="💸", layout="wide")
+# Absolute path so the favicon resolves regardless of the process's current
+# working directory when `streamlit run` is invoked from elsewhere.
+_FAVICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "favicon.png")
+st.set_page_config(page_title="Expense Tracker Pro+", page_icon=_FAVICON_PATH, layout="wide")
 
 # Default lookback window for the main interactive load. Bounding this query
 # (instead of always pulling a user's entire transaction history on every
@@ -32,6 +35,7 @@ from config import CATEGORY_COLORS, SUPPORTED_CURRENCIES
 from db import get_category_colors, get_category_options, load_expenses, load_savings, upsert_recurring_transactions
 from analytics import apply_filters, enrich_expenses
 from common import (
+    brand_header,
     consume_email_link,
     get_date_range_presets,
     inject_style,
@@ -91,7 +95,8 @@ if email_link_error:
 if st.session_state.get("user_id") and st.session_state.get("must_set_password"):
     render_set_password_screen()
 
-st.sidebar.markdown(t("sidebar_title"))
+with st.sidebar:
+    brand_header(t("sidebar_title"))
 st.sidebar.caption(t("sidebar_caption"))
 st.session_state.lang = st.sidebar.selectbox(t("language"), ["en", "uk", "de"], index=["en", "uk", "de"].index(st.session_state.get("lang", "en")), format_func=lambda x: {"en": "English", "uk": "Українська", "de": "Deutsch"}[x])
 
@@ -104,13 +109,13 @@ else:
     mode = st.sidebar.radio(t("mode"), [t("login"), t("register"), t("forgot_password")])
     if mode == t("forgot_password"):
         reset_email = st.sidebar.text_input(t("email"))
-        if st.sidebar.button(t("send_reset_link"), use_container_width=True):
+        if st.sidebar.button(t("send_reset_link"), use_container_width=True, type="primary"):
             ok, message = request_password_reset(reset_email)
             (st.sidebar.success if ok else st.sidebar.error)(message)
     elif mode == t("login"):
         login_email = st.sidebar.text_input(t("email"))
         login_password = st.sidebar.text_input(t("password"), type="password")
-        if st.sidebar.button(t("login"), use_container_width=True):
+        if st.sidebar.button(t("login"), use_container_width=True, type="primary"):
             ok, message = login_user(login_email, login_password)
             if ok:
                 rerun()
@@ -120,12 +125,12 @@ else:
         reg_username = st.sidebar.text_input(t("username"))
         reg_email = st.sidebar.text_input(t("email"))
         reg_password = st.sidebar.text_input(t("password"), type="password")
-        if st.sidebar.button(t("create_account"), use_container_width=True):
+        if st.sidebar.button(t("create_account"), use_container_width=True, type="primary"):
             ok, message = register_user(reg_username, reg_email, reg_password)
             (st.sidebar.success if ok else st.sidebar.error)(message)
 
 if not st.session_state.user_id:
-    st.title(t("app_title"))
+    brand_header(t("app_title"), size=44, hero=True)
     st.write(t("welcome_text"))
     a, b, c = st.columns(3)
     with a:
@@ -179,18 +184,25 @@ default_start = max(min_date, date.today().replace(day=1))
 default_end = max_date
 
 with st.sidebar:
-    st.markdown(f"### {t('global_filters')}")
-    presets = get_date_range_presets(min_date, max_date)
-    preset_name = st.selectbox(t("quick_range"), list(presets.keys()), index=0)
-    preset_start, preset_end = presets[preset_name]
-    start_date = st.date_input(t("from"), value=preset_start, min_value=min_date, max_value=max_date if max_date >= min_date else None)
-    end_date = st.date_input(t("to"), value=preset_end, min_value=min_date, max_value=max_date if max_date >= min_date else None)
-    if start_date > end_date:
-        start_date, end_date = end_date, start_date
-    all_categories = list(dict.fromkeys(expense_categories + income_categories))
-    category_filter = st.multiselect(t("categories"), options=all_categories)
-    search_query = st.text_input(t("search_text"), placeholder=t("search_placeholder"))
-    subs_only_global = st.checkbox(t("subscriptions_only"))
+    # Collapsed by default: a first-time user landing on the sidebar sees
+    # auth state + currency, not five more filter controls stacked below
+    # them right away. Nothing here changes behavior — the default preset
+    # ("This month") already applies whether or not this is expanded; this
+    # only changes whether the controls are visible before the user asks
+    # for them. Anyone who filtered last session still finds the same
+    # controls one click away, same as before.
+    with st.expander(t("global_filters"), expanded=False, icon=":material/tune:"):
+        presets = get_date_range_presets(min_date, max_date)
+        preset_name = st.selectbox(t("quick_range"), list(presets.keys()), index=0)
+        preset_start, preset_end = presets[preset_name]
+        start_date = st.date_input(t("from"), value=preset_start, min_value=min_date, max_value=max_date if max_date >= min_date else None)
+        end_date = st.date_input(t("to"), value=preset_end, min_value=min_date, max_value=max_date if max_date >= min_date else None)
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+        all_categories = list(dict.fromkeys(expense_categories + income_categories))
+        category_filter = st.multiselect(t("categories"), options=all_categories)
+        search_query = st.text_input(t("search_text"), placeholder=t("search_placeholder"))
+        subs_only_global = st.checkbox(t("subscriptions_only"))
 
 filtered_df = apply_filters(base_display_df, start_date, end_date, category_filter, search_query, subs_only_global)
 expense_df = filtered_df[filtered_df["type"] == "expense"].copy()
@@ -212,7 +224,7 @@ ctx = {
     "category_colors": category_colors,
 }
 
-st.title(t("app_title"))
+brand_header(t("app_title"), size=32)
 st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtered_df)} {t('filtered_transactions')}")
 
 # Page objects are created here (rather than inline in a list literal) and
@@ -221,16 +233,22 @@ st.caption(f"{start_date.isoformat()} → {end_date.isoformat()} · {len(filtere
 # straight to Quick Add) instead of only relying on the sidebar nav. The
 # lambdas below still close over `ctx` by reference, so adding the "pages"
 # key to it afterwards is picked up fine when a page actually renders.
-page_dashboard = st.Page(lambda v=dashboard: v.render(ctx), title=t("dashboard"), icon="📊", url_path="dashboard", default=True)
-page_quick_add = st.Page(lambda v=quick_add: v.render(ctx), title=t("quick_add"), icon="⚡", url_path="quick-add")
-page_add_expense = st.Page(lambda v=add_expense: v.render(ctx), title=t("add_expense"), icon="➕", url_path="add-expense")
-page_manage_expenses = st.Page(lambda v=manage_expenses: v.render(ctx), title=t("manage_expenses"), icon="🗂️", url_path="manage-expenses")
-page_subscriptions = st.Page(lambda v=subscriptions: v.render(ctx), title=t("subscriptions"), icon="🔁", url_path="subscriptions")
-page_savings = st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon="💰", url_path="savings")
-page_analytics = st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon="📈", url_path="analytics")
-page_import_export = st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon="📤", url_path="import-export")
-page_categories = st.Page(lambda v=categories_page: v.render(ctx), title=t("categories_page"), icon="🏷️", url_path="categories")
-page_help = st.Page(lambda v=help_page: v.render(ctx), title=t("help_page"), icon="❓", url_path="help")
+#
+# Icons are Material Symbols (":material/name:", built into Streamlit)
+# instead of the old rainbow Unicode emoji (📊⚡➕🗂️🔁💰📈📤🏷️❓) — one
+# consistent, monochrome icon family reads as a designed icon set; a
+# different colorful emoji per nav item read more like placeholder
+# content than a real product's navigation.
+page_dashboard = st.Page(lambda v=dashboard: v.render(ctx), title=t("dashboard"), icon=":material/space_dashboard:", url_path="dashboard", default=True)
+page_quick_add = st.Page(lambda v=quick_add: v.render(ctx), title=t("quick_add"), icon=":material/bolt:", url_path="quick-add")
+page_add_expense = st.Page(lambda v=add_expense: v.render(ctx), title=t("add_expense"), icon=":material/add_circle:", url_path="add-expense")
+page_manage_expenses = st.Page(lambda v=manage_expenses: v.render(ctx), title=t("manage_expenses"), icon=":material/receipt_long:", url_path="manage-expenses")
+page_subscriptions = st.Page(lambda v=subscriptions: v.render(ctx), title=t("subscriptions"), icon=":material/autorenew:", url_path="subscriptions")
+page_savings = st.Page(lambda v=savings: v.render(ctx), title=t("savings"), icon=":material/savings:", url_path="savings")
+page_analytics = st.Page(lambda v=analytics_page: v.render(ctx), title=t("analytics"), icon=":material/monitoring:", url_path="analytics")
+page_import_export = st.Page(lambda v=import_export: v.render(ctx), title=t("import_export"), icon=":material/swap_vert:", url_path="import-export")
+page_categories = st.Page(lambda v=categories_page: v.render(ctx), title=t("categories_page"), icon=":material/sell:", url_path="categories")
+page_help = st.Page(lambda v=help_page: v.render(ctx), title=t("help_page"), icon=":material/help:", url_path="help")
 
 ctx["pages"] = {
     "dashboard": page_dashboard,
@@ -245,18 +263,19 @@ ctx["pages"] = {
     "help": page_help,
 }
 
-pages = [
-    page_dashboard,
-    page_quick_add,
-    page_add_expense,
-    page_manage_expenses,
-    page_subscriptions,
-    page_savings,
-    page_analytics,
-    page_import_export,
-    page_categories,
-    page_help,
-]
-navigation = st.navigation(pages, position="sidebar")
-st.sidebar.markdown(f"### {t('navigation')}")
+# Grouped instead of one flat 9-item list: a new user's very first look at
+# the sidebar used to be a wall of nine same-weight items with no
+# structure. Five labeled sections turn that into a scannable menu
+# without hiding or removing a single page — every page is still exactly
+# one click away, just under a heading that says what kind of thing it is.
+navigation = st.navigation(
+    {
+        t("nav_group_overview"): [page_dashboard],
+        t("nav_group_add"): [page_quick_add, page_add_expense],
+        t("nav_group_manage"): [page_manage_expenses, page_subscriptions, page_savings, page_categories],
+        t("nav_group_insights"): [page_analytics],
+        t("nav_group_more"): [page_import_export, page_help],
+    },
+    position="sidebar",
+)
 navigation.run()
