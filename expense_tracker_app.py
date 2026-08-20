@@ -43,6 +43,7 @@ from common import (
     login_user,
     logout_user,
     metric_card,
+    privacy_policy_text,
     register_user,
     render_footer,
     render_set_password_screen,
@@ -126,6 +127,12 @@ else:
         reg_username = st.sidebar.text_input(t("username"))
         reg_email = st.sidebar.text_input(t("email"))
         reg_password = st.sidebar.text_input(t("password"), type="password")
+        # A not-yet-registered visitor has no session yet, so a link to the
+        # Help page (which only exists inside the logged-in app shell) would
+        # 404 for them — the full text is shown right here instead, in a
+        # collapsed expander so it doesn't dominate the registration form.
+        with st.sidebar.expander(t("privacy_policy_expander")):
+            st.markdown(privacy_policy_text())
         privacy_agreed = st.sidebar.checkbox(t("privacy_agree"))
         if st.sidebar.button(t("create_account"), use_container_width=True, type="primary"):
             if not privacy_agreed:

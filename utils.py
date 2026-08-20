@@ -50,6 +50,35 @@ def readable_text_color(hex_color: str, light: str = "#ffffff", dark: str = "#1a
         return light
 
 
+def _hex_channels(hex_color: str) -> Tuple[int, int, int]:
+    hx = hex_color.lstrip("#")
+    return tuple(int(hx[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def lighten_hex(hex_color: str, amount: float) -> str:
+    """Blend `hex_color` toward white by `amount` (0 = unchanged, 1 = white).
+
+    Used to build the light stop of a two-stop "soft depth" gradient (see
+    the chart-redesign pass) — one base category/brand color in, one
+    lighter tint of the SAME hue out, so a gradient bar/segment reads as a
+    tinted version of its own color rather than an unrelated second hue.
+    """
+    r, g, b = _hex_channels(hex_color)
+    r = round(r + (255 - r) * amount)
+    g = round(g + (255 - g) * amount)
+    b = round(b + (255 - b) * amount)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def darken_hex(hex_color: str, amount: float) -> str:
+    """Blend `hex_color` toward black by `amount` (0 = unchanged, 1 = black)."""
+    r, g, b = _hex_channels(hex_color)
+    r = round(r * (1 - amount))
+    g = round(g * (1 - amount))
+    b = round(b * (1 - amount))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def safe_float(value, default: float = 0.0) -> float:
     try:
         if value is None or value == "":

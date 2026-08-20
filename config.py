@@ -327,6 +327,15 @@ STYLE = """
   background:var(--app-secondary-bg);
 }
 
+.donut-wrap {display:flex; justify-content:center; margin-bottom:.6rem;}
+.donut-value {fill: var(--app-text); font-weight:800;}
+.donut-caption {fill: var(--app-text); opacity:.68;}
+.donut-legend {display:flex; flex-direction:column; gap:.4rem;}
+.donut-legend-row {display:flex; align-items:center; gap:.5rem; font-size:.85rem;}
+.donut-swatch {width:10px; height:10px; border-radius:3px; flex-shrink:0;}
+.donut-legend-name {color:var(--app-text); flex:1;}
+.donut-legend-value {color:var(--app-text); opacity:.68; font-variant-numeric: tabular-nums; white-space:nowrap;}
+
 /* ---------------------------------------------------------------------
    Mobile: tighten spacing and type scale below ~640px (typical phone
    width) so cards and metrics don't feel oversized or cramped once

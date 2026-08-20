@@ -6,10 +6,11 @@ instead of re-declaring it.
 """
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -27,7 +28,7 @@ from db import (
     username_exists,
     verify_otp,
 )
-from utils import format_money, readable_text_color, safe_float
+from utils import format_money, lighten_hex, readable_text_color, safe_float
 
 # Inline SVG brand mark (rounded square + three ascending bars — a plain
 # growth/analytics glyph). Replaces the old "💸" emoji used as a stand-in
@@ -197,32 +198,306 @@ def show_empty(text: str) -> None:
     st.markdown(f'<div class="soft-box">{text}</div>', unsafe_allow_html=True)
 
 
-def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount", category_colors: Optional[Dict[str, str]] = None) -> None:
-    """`cat_df["category"]` must still hold the raw (untranslated) category
-    name when this is called — colors are looked up by that raw name (it's
-    the only name a color override or config.CATEGORY_COLORS entry is ever
-    keyed by), and translated to the display language here, internally,
-    rather than by the caller. An earlier version had callers pre-translate
-    the column before calling this, which meant the color lookup below was
-    matching translated labels against English keys and silently missing
-    for every non-English UI language, always falling back to "Other"'s
-    color — not a wave-3 change, just fixed while touching this function
-    for the customizable-colors feature.
+def privacy_policy_text() -> str:
+    """The plain-language Privacy Policy summary, in the current language.
+
+    Shared between the Help page (where it's the canonical, permanent copy)
+    and the registration form's expandable preview — a single source of
+    truth so the two never drift apart. Registration needs its own copy of
+    the text (not a link to the Help page) because a not-yet-registered
+    visitor has no session yet and can't navigate to a page that only
+    exists inside the logged-in app shell.
     """
-    if cat_df.empty:
+    return l(
+        "**Who operates this app.** Ledgy is developed and operated by PMG (Pyatnychko Media Group).\n\n"
+        "**What we collect.** Your email address (for login), the transactions, savings entries, budgets, "
+        "and custom categories you enter, and basic account metadata (username, password hash).\n\n"
+        "**Where it's stored.** In a Supabase-hosted Postgres database, protected by row-level security so "
+        "only your own account can read or write your rows.\n\n"
+        "**Third-party services.** Currency conversion rates are fetched from the Frankfurter and National "
+        "Bank of Ukraine (NBU) public APIs. Only the currency codes and dates needed for the conversion are "
+        "sent — no personal data or transaction details leave the app for this.\n\n"
+        "**Account deletion.** Self-service account deletion isn't available in the app yet. If you'd like "
+        "your account and data removed, reach out to the person who manages this app for you.\n\n"
+        "**Changes.** This summary may be updated as the app evolves; check back on the Help page for the "
+        "current version.",
+        "**Хто керує застосунком.** Ledgy розробляє та підтримує PMG (Pyatnychko Media Group).\n\n"
+        "**Що ми збираємо.** Твою електронну пошту (для входу), внесені тобою транзакції, записи "
+        "накопичень, бюджети й користувацькі категорії, а також базові метадані акаунту (ім'я користувача, "
+        "хеш пароля).\n\n"
+        "**Де це зберігається.** У базі даних Postgres на Supabase, захищеній row-level security, тому "
+        "читати чи змінювати твої рядки може лише твій власний акаунт.\n\n"
+        "**Сторонні сервіси.** Курси валют отримуються з публічних API Frankfurter та Національного банку "
+        "України (НБУ). Для цього передаються лише коди валют і дати — жодні особисті дані чи деталі "
+        "транзакцій не покидають застосунок.\n\n"
+        "**Видалення акаунту.** Самостійне видалення акаунту наразі недоступне в застосунку. Якщо хочеш, "
+        "щоб твій акаунт і дані видалили, звернись до людини, яка адмініструє цей застосунок для тебе.\n\n"
+        "**Зміни.** Цей опис може оновлюватися з розвитком застосунку — перевіряй сторінку Довідки для "
+        "актуальної версії.",
+        "**Wer diese App betreibt.** Ledgy wird von PMG (Pyatnychko Media Group) entwickelt und betrieben.\n\n"
+        "**Was wir erheben.** Deine E-Mail-Adresse (für den Login), die von dir eingegebenen Transaktionen, "
+        "Ersparnis-Einträge, Budgets und eigenen Kategorien sowie grundlegende Kontometadaten (Benutzername, "
+        "Passwort-Hash).\n\n"
+        "**Wo es gespeichert wird.** In einer Supabase-gehosteten Postgres-Datenbank, geschützt durch "
+        "Row-Level-Security, sodass nur dein eigenes Konto deine Zeilen lesen oder ändern kann.\n\n"
+        "**Drittanbieterdienste.** Wechselkurse werden von den öffentlichen APIs von Frankfurter und der "
+        "Nationalbank der Ukraine (NBU) abgerufen. Dabei werden nur die für die Umrechnung nötigen "
+        "Währungscodes und Daten übermittelt — keine persönlichen Daten oder Transaktionsdetails.\n\n"
+        "**Kontolöschung.** Eine Selbstbedienungs-Kontolöschung ist in der App noch nicht verfügbar. Wenn du "
+        "möchtest, dass dein Konto und deine Daten entfernt werden, wende dich an die Person, die diese App "
+        "für dich verwaltet.\n\n"
+        "**Änderungen.** Diese Zusammenfassung kann sich mit der Weiterentwicklung der App ändern — schau "
+        "auf der Hilfeseite für die aktuelle Version vorbei.",
+    )
+
+
+# =========================================================
+# CHARTS
+#
+# "Soft depth" gradient system (chosen by the user from three prototyped
+# directions — flat/restrained, soft depth, vibrant glow): every chart fill
+# is a two-stop linear gradient from a lighter tint of its own hue to the
+# hue itself, never an unrelated second color. Identity charts (the donut)
+# keep each category's own color — only the fill *technique* changed, not
+# what a color means. Magnitude-only charts (weekday/merchant/trend) use a
+# single brand-hue gradient, matching the sequential-encoding rule (one
+# hue, light→dark) rather than inventing a second brand color.
+# =========================================================
+
+
+def _active_brand_color() -> str:
+    """The primaryColor for whichever theme (light/dark) is currently
+    active, so single-hue chart gradients always match the same blue the
+    rest of the UI (buttons, links, the sidebar accent) is using — see
+    .streamlit/config.toml for the two values this mirrors. Falls back to
+    the light-theme blue if the theme can't be read (e.g. outside a live
+    browser session, such as a headless test run).
+    """
+    try:
+        return "#5b8cff" if st.context.theme.type == "dark" else "#1d4ed8"
+    except Exception:
+        return "#1d4ed8"
+
+
+def _gradient(base_hex: str, light_amount: float = 0.55, vertical: bool = True, fade_to_transparent: bool = False) -> alt.LinearGradient:
+    stop_end = f"{base_hex}00" if fade_to_transparent else base_hex
+    x2, y2 = (0, 1) if vertical else (1, 0)
+    return alt.LinearGradient(
+        gradient="linear", x1=0, y1=0, x2=x2, y2=y2,
+        stops=[alt.GradientStop(offset=0, color=base_hex if fade_to_transparent else lighten_hex(base_hex, light_amount)),
+               alt.GradientStop(offset=1, color=stop_end)],
+    )
+
+
+def render_donut_chart(cat_df: pd.DataFrame, value_col: str = "display_amount", currency: str = "EUR", category_colors: Optional[Dict[str, str]] = None) -> None:
+    """Donut chart with the filtered total in the center — replaces the old
+    matplotlib pie chart. Hand-rolled inline SVG rather than a charting
+    library: it renders on a transparent background (the matplotlib version
+    always painted an opaque white figure background, which looked wrong in
+    dark mode — a known issue from the last redesign pass, fixed here for
+    free as a side effect rather than patched separately), needs no extra
+    dependency, and gives full control over the per-segment gradient and
+    the center label.
+
+    `cat_df["category"]` must hold the raw (untranslated) category name —
+    colors and the legend both key off it, translating only for display.
+    """
+    if cat_df.empty or float(cat_df[value_col].sum()) <= 0:
         show_empty(l("Not enough data.", "Недостатньо даних.", "Nicht genug Daten."))
         return
+
     colors_map = category_colors or CATEGORY_COLORS
     fallback = colors_map.get("Other", CATEGORY_COLORS["Other"])
-    colors = [colors_map.get(c, fallback) for c in cat_df["category"]]
-    labels = cat_df["category"].map(lcat)
-    fig, ax = plt.subplots(figsize=(5.5, 5.5))
-    _, _, autotexts = ax.pie(cat_df[value_col], labels=labels, autopct="%1.1f%%", startangle=90, colors=colors)
-    for autotext, wedge_color in zip(autotexts, colors):
-        autotext.set_color(readable_text_color(wedge_color))
-    ax.axis("equal")
-    st.pyplot(fig)
-    plt.close(fig)
+    total = float(cat_df[value_col].sum())
+
+    size = 220
+    cx = cy = size / 2
+    r_outer = size / 2 - 6
+    r_inner = r_outer * 0.62
+
+    def arc_point(radius: float, angle_deg: float) -> Tuple[float, float]:
+        a = math.radians(angle_deg - 90)
+        return cx + radius * math.cos(a), cy + radius * math.sin(a)
+
+    def segment_path(r_out: float, r_in: float, a0: float, a1: float, gap_deg: float = 1.4) -> str:
+        a0, a1 = a0 + gap_deg, a1 - gap_deg
+        if a1 <= a0:
+            mid = (a0 + a1) / 2
+            a0, a1 = mid - 0.35, mid + 0.35
+        large_arc = 1 if (a1 - a0) > 180 else 0
+        x0, y0 = arc_point(r_out, a0)
+        x1, y1 = arc_point(r_out, a1)
+        x2, y2 = arc_point(r_in, a1)
+        x3, y3 = arc_point(r_in, a0)
+        return (
+            f"M {x0:.2f} {y0:.2f} A {r_out:.2f} {r_out:.2f} 0 {large_arc} 1 {x1:.2f} {y1:.2f} "
+            f"L {x2:.2f} {y2:.2f} A {r_in:.2f} {r_in:.2f} 0 {large_arc} 0 {x3:.2f} {y3:.2f} Z"
+        )
+
+    angle = 0.0
+    defs: List[str] = []
+    paths: List[str] = []
+    legend_rows = []
+    for i, row in enumerate(cat_df.itertuples(index=False)):
+        name = getattr(row, "category")
+        value = float(getattr(row, value_col))
+        if value <= 0:
+            continue
+        base = colors_map.get(name, fallback)
+        frac = value / total
+        a0, a1 = angle, angle + frac * 360
+        angle = a1
+        gid = f"donut_grad_{i}"
+        defs.append(
+            f'<linearGradient id="{gid}" x1="0%" y1="0%" x2="100%" y2="100%">'
+            f'<stop offset="0%" stop-color="{lighten_hex(base, 0.5)}"/>'
+            f'<stop offset="100%" stop-color="{base}"/>'
+            f"</linearGradient>"
+        )
+        title = f"{lcat(name)}: {format_money(value, currency)} ({frac * 100:.1f}%)"
+        paths.append(f'<path d="{segment_path(r_outer, r_inner, a0, a1)}" fill="url(#{gid})" filter="url(#donutShadow)"><title>{title}</title></path>')
+        legend_rows.append((name, base, value, frac * 100))
+
+    total_label = format_money(total, currency)
+    value_font = 21 if len(total_label) <= 14 else 16
+    caption = l("total spent", "усього витрачено", "insgesamt ausgegeben")
+
+    svg = (
+        '<div class="donut-wrap"><svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">'
+        '<defs><filter id="donutShadow" x="-40%" y="-40%" width="180%" height="180%">'
+        '<feDropShadow dx="0" dy="1.5" stdDeviation="2.2" flood-opacity="0.18"/></filter>{defs}</defs>'
+        "{paths}"
+        '<text x="{cx}" y="{cy_val}" text-anchor="middle" class="donut-value" font-size="{vf}" font-family="Inter, sans-serif">{total_label}</text>'
+        '<text x="{cx}" y="{cy_cap}" text-anchor="middle" class="donut-caption" font-size="12" font-family="Inter, sans-serif">{caption}</text>'
+        "</svg></div>"
+    ).format(
+        size=size, defs="".join(defs), paths="".join(paths), cx=cx, cy_val=cy - 5, cy_cap=cy + 16,
+        vf=value_font, total_label=total_label, caption=caption,
+    )
+    st.markdown(svg, unsafe_allow_html=True)
+
+    legend_rows.sort(key=lambda r: r[2], reverse=True)
+    legend_html = ['<div class="donut-legend">']
+    for name, base, value, share_pct in legend_rows:
+        legend_html.append(
+            f'<div class="donut-legend-row"><span class="donut-swatch" style="background:{base}"></span>'
+            f'<span class="donut-legend-name">{lcat(name)}</span>'
+            f'<span class="donut-legend-value">{format_money(value, currency)} · {share_pct:.1f}%</span></div>'
+        )
+    legend_html.append("</div>")
+    st.markdown("".join(legend_html), unsafe_allow_html=True)
+
+
+def gradient_bar_chart(df: pd.DataFrame, x_col: str, y_col: str, x_title: Optional[str] = None, y_title: Optional[str] = None, height: int = 220, color: Optional[str] = None, sort: Optional[List[str]] = None) -> None:
+    """Single-series magnitude bar chart — one brand-hue gradient (light at
+    the top, the theme's primaryColor at the base), rounded bar tops, and a
+    hover tooltip. For charts encoding category IDENTITY (not just a single
+    measure), use `categorical_gradient_bar_chart` instead — this one
+    always uses one hue, on purpose (a magnitude-only chart has no per-bar
+    identity to encode, so a gradient per bar here would just be noise).
+    """
+    base = color or _active_brand_color()
+    # Fixed pixel bar width (not left to the band scale's auto-stretch) so a
+    # chart with very few bars — one merchant, one weekday with data — gets
+    # a normal-looking bar instead of one block stretched across the full
+    # container width.
+    chart = (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6, color=_gradient(base), size=44)
+        .encode(
+            x=alt.X(f"{x_col}:N", title=x_title, sort=sort, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y(f"{y_col}:Q", title=y_title),
+            tooltip=[alt.Tooltip(f"{x_col}:N", title=x_title or x_col), alt.Tooltip(f"{y_col}:Q", title=y_title or y_col, format=",.2f")],
+        )
+        .properties(height=height)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
+def gradient_area_chart(df: pd.DataFrame, x_col: str, y_col: str, x_title: Optional[str] = None, y_title: Optional[str] = None, height: int = 220, color: Optional[str] = None) -> None:
+    """Single-series trend chart — smooth line with a gradient fill fading
+    from the brand hue to transparent, the standard fintech-app treatment
+    for a magnitude-over-time series (Sequential = one hue, per the
+    data-viz color rules — never a second, unrelated color for the fill).
+    """
+    base = color or _active_brand_color()
+    # `point=` overlays a small dot per data point — without it, a series
+    # with only one x-value (e.g. a single month of history) draws nothing
+    # at all: a line/area mark has no width to fill with just one point.
+    chart = (
+        alt.Chart(df)
+        .mark_area(
+            interpolate="monotone", line={"color": base, "strokeWidth": 2.5},
+            color=_gradient(base, fade_to_transparent=True),
+            point=alt.OverlayMarkDef(color=base, size=45, filled=True),
+        )
+        .encode(
+            x=alt.X(f"{x_col}:O", title=x_title),
+            y=alt.Y(f"{y_col}:Q", title=y_title),
+            tooltip=[alt.Tooltip(f"{x_col}:O", title=x_title or x_col), alt.Tooltip(f"{y_col}:Q", title=y_title or y_col, format=",.2f")],
+        )
+        .properties(height=height)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
+def categorical_gradient_bar_chart(df: pd.DataFrame, x_col: str, y_col: str, category_colors: Dict[str, str], x_title: Optional[str] = None, y_title: Optional[str] = None, height: int = 260) -> None:
+    """Bar chart where each bar IS a category (e.g. spend per category) —
+    every bar gets its own category's color as a light→base gradient, the
+    same color that category uses everywhere else in the app (the donut,
+    the badges), so a category's identity stays consistent across every
+    chart on the dashboard rather than each chart inventing its own hue.
+
+    `df[x_col]` must hold RAW (untranslated) category names — colors are
+    looked up by that raw name, same rule as `render_donut_chart` (a past
+    bug here, fixed in an earlier pass, was color lookups silently missing
+    for every non-English UI language because the field held translated
+    text instead). Axis ticks and tooltips are translated for display via a
+    generated Vega expression that maps each raw name to `lcat(name)`
+    without touching the underlying field the color condition matches on.
+    """
+    if df.empty:
+        show_empty(l("Not enough data.", "Недостатньо даних.", "Nicht genug Daten."))
+        return
+    domain = list(df[x_col])
+    fallback = category_colors.get("Other", CATEGORY_COLORS["Other"])
+
+    def _js_escape(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("'", "\\'")
+
+    # `axis.labelExpr` runs against `datum.value`; `transform_calculate`
+    # runs against `datum.<field>` — same mapping, two different Vega
+    # expression contexts, so it's built twice with different datum refs.
+    ternary_tail = "".join(f"datum.{{ref}} === '{name}' ? '{_js_escape(lcat(name))}' : " for name in domain)
+    label_expr_axis = ternary_tail.format(ref="value") + "datum.value"
+    label_expr_calc = ternary_tail.format(ref=x_col) + f"datum.{x_col}"
+
+    # Each bar's fill is a `condition` branch keyed on its own category name
+    # (Vega-Lite's scale `range` doesn't accept Gradient objects, so a
+    # per-category color SCALE can't carry gradients — a chained `when/then`
+    # on the raw field, one branch per category, is the supported way to
+    # give each bar its own gradient rather than a flat scale color).
+    cond = None
+    for name in domain:
+        base = category_colors.get(name, fallback)
+        predicate = getattr(alt.datum, x_col) == name
+        branch = alt.when(predicate) if cond is None else cond.when(predicate)
+        cond = branch.then(alt.value(_gradient(base)))
+    cond = cond.otherwise(alt.value(_gradient(fallback)))
+
+    chart = (
+        alt.Chart(df)
+        .transform_calculate(category_label=label_expr_calc)
+        .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6, size=44)
+        .encode(
+            x=alt.X(f"{x_col}:N", title=x_title, sort=domain, axis=alt.Axis(labelAngle=-30, labelExpr=label_expr_axis)),
+            y=alt.Y(f"{y_col}:Q", title=y_title),
+            color=cond,
+            tooltip=[alt.Tooltip("category_label:N", title=x_title or x_col), alt.Tooltip(f"{y_col}:Q", title=y_title or y_col, format=",.2f")],
+        )
+        .properties(height=height)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 # =========================================================
@@ -539,8 +814,9 @@ TRANSLATIONS = {
         "saving": "Saving",
         "consistency": "Consistency",
         "footer_text": "Ledgy · built by PMG (Pyatnychko Media Group), est. 2026",
-        "privacy_agree": "I've read and agree to the [Privacy Policy](/help)",
+        "privacy_agree": "I've read and agree to the Privacy Policy",
         "privacy_agree_required": "Please confirm you've read the Privacy Policy before creating an account.",
+        "privacy_policy_expander": "Read the Privacy Policy",
     },
     "uk": {
         "app_title": "Ledgy",
@@ -605,8 +881,9 @@ TRANSLATIONS = {
         "saving": "Заощадження",
         "consistency": "Стабільність",
         "footer_text": "Ledgy · створено PMG (Pyatnychko Media Group), 2026",
-        "privacy_agree": "Я прочитав(-ла) і погоджуюсь з [Політикою конфіденційності](/help)",
+        "privacy_agree": "Я прочитав(-ла) і погоджуюсь з Політикою конфіденційності",
         "privacy_agree_required": "Будь ласка, підтверди, що прочитав(-ла) Політику конфіденційності, перш ніж створювати акаунт.",
+        "privacy_policy_expander": "Прочитати Політику конфіденційності",
     },
     "de": {
         "app_title": "Ledgy",
@@ -671,8 +948,9 @@ TRANSLATIONS = {
         "saving": "Sparen",
         "consistency": "Konstanz",
         "footer_text": "Ledgy · entwickelt von PMG (Pyatnychko Media Group), gegr. 2026",
-        "privacy_agree": "Ich habe die [Datenschutzerklärung](/help) gelesen und stimme zu",
+        "privacy_agree": "Ich habe die Datenschutzerklärung gelesen und stimme zu",
         "privacy_agree_required": "Bitte bestätige, dass du die Datenschutzerklärung gelesen hast, bevor du ein Konto erstellst.",
+        "privacy_policy_expander": "Datenschutzerklärung lesen",
     },
 }
 
