@@ -9,7 +9,7 @@ from analytics import calculate_financial_health, category_summary, check_catego
 from common import end_section, generate_smart_insights, get_rates_map, l, lcat, metric_card, plot_pie, rerun, section, show_empty, t
 from config import CATEGORY_COLORS
 from db import convert_from_eur, convert_to_eur, get_category_budgets, get_monthly_limit, set_category_budget, set_monthly_limit
-from utils import format_money, month_key, safe_float
+from utils import format_money, month_key, readable_text_color, safe_float
 
 
 def render(ctx: dict) -> None:
@@ -229,8 +229,10 @@ def render(ctx: dict) -> None:
             category_colors = ctx.get("category_colors", CATEGORY_COLORS)
             for _, row in recent.iterrows():
                 badge_color = category_colors.get(row["category"], category_colors.get("Other", CATEGORY_COLORS["Other"]))
-                badge = f'<span class="badge" style="background:{badge_color}">{lcat(row["category"])}</span>'
-                sub_badge = f'<span class="badge" style="background:#3b82f6">{l("Subscription", "Підписка", "Abo")}</span>' if int(row["subscription"]) == 1 else ""
+                badge_text_color = readable_text_color(badge_color)
+                badge = f'<span class="badge" style="background:{badge_color};color:{badge_text_color}">{lcat(row["category"])}</span>'
+                sub_badge_color = "#3b82f6"
+                sub_badge = f'<span class="badge" style="background:{sub_badge_color};color:{readable_text_color(sub_badge_color)}">{l("Subscription", "Підписка", "Abo")}</span>' if int(row["subscription"]) == 1 else ""
                 st.markdown(
                     f'<div class="feed-row"><div>{badge} {sub_badge}<br><span class="small-muted">{row["date_only"]} · {row["note"] or row["merchant"]}</span></div>'
                     f'<div><strong>{format_money(row["display_amount"], display_currency)}</strong></div></div>',

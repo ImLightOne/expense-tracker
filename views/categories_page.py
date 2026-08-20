@@ -3,9 +3,16 @@ from __future__ import annotations
 import streamlit as st
 
 from common import end_section, l, lcat, rerun, section, show_empty
-from config import CATEGORY_COLORS, DEFAULT_CATEGORIES, INCOME_CATEGORIES
+from config import (
+    CATEGORY_COLOR_TEMPLATE_NAMES,
+    CATEGORY_COLOR_TEMPLATES,
+    CATEGORY_COLORS,
+    DEFAULT_CATEGORIES,
+    INCOME_CATEGORIES,
+)
 from db import (
     add_custom_category,
+    apply_category_color_template,
     delete_custom_category,
     get_category_colors,
     get_category_options,
@@ -86,6 +93,37 @@ def _render_color_section(user_id: str, tx_type: str) -> None:
                 rerun()
 
 
+def _render_color_templates_section(user_id: str) -> None:
+    """A row per pre-built palette template: swatch preview + one-click apply.
+
+    Templates are sourced from real, published palettes (Tableau 20 /
+    Material Design tonal families — see config.CATEGORY_COLOR_TEMPLATES) so
+    the colors are pre-validated to work well together, instead of asking
+    people to hand-pick 19 individual hues and hope they harmonize.
+    """
+    st.markdown(f"**{l('Palette templates', 'Шаблони кольорів', 'Farbvorlagen')}**")
+    st.caption(l(
+        "Ready-made color sets, picked to work well together. Applying one overwrites all your category colors below.",
+        "Готові набори кольорів, підібрані так, щоб гармонійно поєднуватись. Застосування шаблону перезапише всі кольори категорій нижче.",
+        "Fertige Farbsets, die gut zusammenpassen. Das Anwenden überschreibt alle deine Kategoriefarben unten.",
+    ))
+    expense_categories = get_category_options(user_id, "expense")
+    income_categories = get_category_options(user_id, "income")
+    for key, template in CATEGORY_COLOR_TEMPLATES.items():
+        row_label, row_swatches, row_apply = st.columns([1.4, 3.6, 1.4])
+        row_label.write(f"**{CATEGORY_COLOR_TEMPLATE_NAMES[key][st.session_state.get('lang', 'en')]}**")
+        swatches = "".join(
+            f'<span style="display:inline-block;width:16px;height:16px;border-radius:4px;'
+            f'background:{color};margin-right:4px;" title="{name}"></span>'
+            for name, color in list(template.items())[:12]
+        )
+        row_swatches.markdown(f'<div style="line-height:16px;padding-top:8px;">{swatches}</div>', unsafe_allow_html=True)
+        if row_apply.button(l("Apply", "Застосувати", "Anwenden"), key=f"apply_template_{key}", use_container_width=True):
+            apply_category_color_template(user_id, template, expense_categories, income_categories)
+            st.success(l("Palette applied.", "Шаблон застосовано.", "Vorlage angewendet."))
+            rerun()
+
+
 def render(ctx: dict) -> None:
     user_id = ctx["user_id"]
 
@@ -98,6 +136,8 @@ def render(ctx: dict) -> None:
         ),
     )
     _render_type_section(user_id, "expense", DEFAULT_CATEGORIES)
+    st.divider()
+    _render_color_templates_section(user_id)
     st.divider()
     _render_color_section(user_id, "expense")
     end_section()

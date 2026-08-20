@@ -159,6 +159,7 @@ def render(ctx: dict) -> None:
 
     st.markdown(
         l(
+            "**Who operates this app.** Ledgy is developed and operated by PMG (Pyatnychko Media Group).\n\n"
             "**What we collect.** Your email address (for login), the transactions, savings entries, budgets, "
             "and custom categories you enter, and basic account metadata (username, password hash).\n\n"
             "**Where it's stored.** In a Supabase-hosted Postgres database, protected by row-level security so "
@@ -170,6 +171,7 @@ def render(ctx: dict) -> None:
             "your account and data removed, reach out to the person who manages this app for you.\n\n"
             "**Changes.** This summary may be updated as the app evolves; check back here for the current "
             "version.",
+            "**Хто керує застосунком.** Ledgy розробляє та підтримує PMG (Pyatnychko Media Group).\n\n"
             "**Що ми збираємо.** Твою електронну пошту (для входу), внесені тобою транзакції, записи "
             "накопичень, бюджети й користувацькі категорії, а також базові метадані акаунту (ім'я користувача, "
             "хеш пароля).\n\n"
@@ -182,6 +184,7 @@ def render(ctx: dict) -> None:
             "щоб твій акаунт і дані видалили, звернись до людини, яка адмініструє цей застосунок для тебе.\n\n"
             "**Зміни.** Цей опис може оновлюватися з розвитком застосунку — перевіряй цю сторінку для "
             "актуальної версії.",
+            "**Wer diese App betreibt.** Ledgy wird von PMG (Pyatnychko Media Group) entwickelt und betrieben.\n\n"
             "**Was wir erheben.** Deine E-Mail-Adresse (für den Login), die von dir eingegebenen Transaktionen, "
             "Ersparnis-Einträge, Budgets und eigenen Kategorien sowie grundlegende Kontometadaten (Benutzername, "
             "Passwort-Hash).\n\n"
@@ -196,6 +199,19 @@ def render(ctx: dict) -> None:
             "für dich verwaltet.\n\n"
             "**Änderungen.** Diese Zusammenfassung kann sich mit der Weiterentwicklung der App ändern — schau "
             "hier für die aktuelle Version vorbei.",
+        )
+    )
+    end_section()
+
+    section(l("About", "Про проєкт", "Über uns"))
+    st.markdown(
+        l(
+            "Ledgy is designed and built by **PMG (Pyatnychko Media Group)**, founded in 2026. The goal is a "
+            "fast, no-nonsense way to track spending — without turning it into a second job.",
+            "Ledgy розробляє та створює **PMG (Pyatnychko Media Group)**, заснована у 2026 році. Мета — швидкий "
+            "і зрозумілий спосіб відстежувати витрати, без зайвої складності.",
+            "Ledgy wird von **PMG (Pyatnychko Media Group)** entworfen und entwickelt, gegründet 2026. Ziel ist "
+            "eine schnelle, unkomplizierte Art, Ausgaben im Blick zu behalten — ohne dass es zur zweiten Arbeit wird.",
         )
     )
     end_section()
