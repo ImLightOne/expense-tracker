@@ -175,21 +175,41 @@ def test_parse_quick_add_detects_subscription():
 
 
 def test_parse_quick_add_defaults_date_to_today_when_missing():
-    # Use an integer amount (no "." or "/") so it can't be misread by the
-    # short-date regex -- see test_parse_quick_add_decimal_amount_without_date_is_ambiguous.
     result = parse_quick_add("45 EUR lunch")
     assert result["ok"] is True
     assert result["date"] == date.today()
 
 
-def test_parse_quick_add_decimal_amount_without_date_is_ambiguous():
-    # Known quirk: with no explicit date, a bare decimal amount like "8.5"
-    # matches the short-date regex (day.month) before the amount regex gets
-    # a chance to run, so the entry is misdated instead of defaulting to
-    # today. Documented here so a future fix doesn't regress silently.
+def test_parse_quick_add_decimal_amount_without_date_defaults_to_today():
+    # A bare decimal amount like "8.5" is shaped like a day.month date, but
+    # since there's no second number in the text to serve as the amount, it
+    # must be treated as the amount and the date must fall back to today --
+    # not be misread as day=8, month=5.
     result = parse_quick_add("8.5 EUR lunch")
     assert result["ok"] is True
-    assert result["date"] == date(date.today().year, 5, 8)
+    assert result["date"] == date.today()
+    assert result["amount"] == 8.5
+
+
+def test_parse_quick_add_distinguishes_date_from_amount_when_both_present():
+    # "17.03" (a real date, March 17) and "24.90" (the amount) both look
+    # like day.month-shaped numbers. The date candidate's own span must be
+    # excluded from the amount search so the real amount is found instead of
+    # re-matching the date fragment.
+    result = parse_quick_add("17.03 24.90 groceries")
+    assert result["ok"] is True
+    assert result["date"] == date(date.today().year, 3, 17)
+    assert result["amount"] == 24.90
+
+
+def test_parse_quick_add_skips_invalid_date_candidate_for_a_later_valid_one():
+    # "24.90" isn't a valid date (month=90), so it must be skipped in favor
+    # of the later, valid "17.03" candidate -- rather than giving up on
+    # date-parsing entirely after the first candidate fails.
+    result = parse_quick_add("24.90 17.03 groceries")
+    assert result["ok"] is True
+    assert result["date"] == date(date.today().year, 3, 17)
+    assert result["amount"] == 24.90
 
 
 def test_parse_quick_add_without_amount_fails_gracefully():
