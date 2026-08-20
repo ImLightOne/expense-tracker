@@ -218,29 +218,49 @@ def parse_quick_add(text: str, history_df: Optional[pd.DataFrame] = None) -> Dic
     if not raw:
         return result
 
+    amount_pattern = r"(?<!\d)(\d{1,3}(?:[,\s]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?!\d)"
+
     date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", raw)
+    amount_search_text = raw
     if date_match:
         try:
             result["date"] = datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
         except Exception:
             pass
+        amount_search_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", raw)
     else:
-        short_match = re.search(r"\b(\d{1,2}[./-]\d{1,2})(?:[./-](\d{2,4}))?\b", raw)
-        if short_match:
-            token = short_match.group(0).replace(".", "-").replace("/", "-")
-            parts = token.split("-")
-            day = int(parts[0])
-            month = int(parts[1])
-            year = int(parts[2]) if len(parts) == 3 else date.today().year
+        # Walk every day.month(.year)-shaped candidate left-to-right instead
+        # of just the first one. A lone amount like "8.5 EUR coffee" also
+        # matches this shape (day=8, month=5) and used to get swallowed as a
+        # date even though there was no other number in the text to serve as
+        # the amount ("17.03 24.90 groceries" had the opposite problem: the
+        # date's own span got re-matched as the amount because it was never
+        # excluded from the amount search). A candidate is only accepted as
+        # *the* date if (a) it forms a real calendar date, and (b) removing
+        # its span still leaves a number behind for the amount regex to find.
+        # Otherwise the candidate is skipped (a later one may still qualify,
+        # fixing the case where the first number-like token fails date
+        # validation, e.g. "24.90 17.03 groceries"), and if none qualify the
+        # date stays at today's default with the raw text left untouched so
+        # the lone number is picked up as the amount instead.
+        for short_match in re.finditer(r"\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b", raw):
+            day = int(short_match.group(1))
+            month = int(short_match.group(2))
+            year_group = short_match.group(3)
+            year = int(year_group) if year_group else date.today().year
             if year < 100:
                 year += 2000
             try:
-                result["date"] = date(year, month, day)
+                candidate_date = date(year, month, day)
             except Exception:
-                pass
+                continue
+            remaining_text = raw[:short_match.start()] + " " + raw[short_match.end():]
+            if re.search(amount_pattern, remaining_text):
+                result["date"] = candidate_date
+                amount_search_text = remaining_text
+                break
 
-    amount_search_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", raw)
-    amount_match = re.search(r"(?<!\d)(\d{1,3}(?:[,\s]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?!\d)", amount_search_text)
+    amount_match = re.search(amount_pattern, amount_search_text)
     if not amount_match:
         return result
     amount_token = amount_match.group(1).replace(" ", "")
