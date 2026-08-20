@@ -4,9 +4,11 @@ import pandas as pd
 import pytest
 
 from utils import (
+    darken_hex,
     detect_merchant_candidate,
     format_money,
     infer_category,
+    lighten_hex,
     monthly_equivalent,
     month_key,
     normalize_quick_text,
@@ -317,3 +319,33 @@ def test_readable_text_color_is_case_insensitive():
 
 def test_readable_text_color_falls_back_to_light_on_bad_input():
     assert readable_text_color("not-a-color") == "#ffffff"
+
+
+# ---------------------------------------------------------------------------
+# lighten_hex / darken_hex
+# ---------------------------------------------------------------------------
+
+def test_lighten_hex_zero_amount_is_unchanged():
+    assert lighten_hex("#1d4ed8", 0) == "#1d4ed8"
+
+
+def test_lighten_hex_full_amount_is_white():
+    assert lighten_hex("#1d4ed8", 1) == "#ffffff"
+
+
+def test_lighten_hex_moves_toward_white():
+    lightened = lighten_hex("#1d4ed8", 0.5)
+    # every channel should be >= the original channel, and the result should
+    # not equal the original or pure white
+    orig = (0x1d, 0x4e, 0xd8)
+    r, g, b = (int(lightened.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    assert (r, g, b) != orig
+    assert r >= orig[0] and g >= orig[1] and b >= orig[2]
+
+
+def test_darken_hex_zero_amount_is_unchanged():
+    assert darken_hex("#1d4ed8", 0) == "#1d4ed8"
+
+
+def test_darken_hex_full_amount_is_black():
+    assert darken_hex("#1d4ed8", 1) == "#000000"
