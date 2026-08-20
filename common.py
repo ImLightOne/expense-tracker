@@ -27,7 +27,7 @@ from db import (
     username_exists,
     verify_otp,
 )
-from utils import format_money, safe_float
+from utils import format_money, readable_text_color, safe_float
 
 # Inline SVG brand mark (rounded square + three ascending bars — a plain
 # growth/analytics glyph). Replaces the old "💸" emoji used as a stand-in
@@ -62,6 +62,15 @@ def brand_header(title: str, size: int = 28, hero: bool = False) -> None:
         f'<span class="brand-wordmark">{title}</span></div>',
         unsafe_allow_html=True,
     )
+
+
+def render_footer() -> None:
+    """Small, quiet company-credit line at the bottom of every page — the
+    kind of "who made this" attribution a professional site carries, but
+    kept out of the way of the actual content above it.
+    """
+    st.divider()
+    st.markdown(f'<div class="small-muted" style="text-align:center;">{t("footer_text")}</div>', unsafe_allow_html=True)
 
 
 def inject_style() -> None:
@@ -208,7 +217,9 @@ def plot_pie(cat_df: pd.DataFrame, value_col: str = "display_amount", category_c
     colors = [colors_map.get(c, fallback) for c in cat_df["category"]]
     labels = cat_df["category"].map(lcat)
     fig, ax = plt.subplots(figsize=(5.5, 5.5))
-    ax.pie(cat_df[value_col], labels=labels, autopct="%1.1f%%", startangle=90, colors=colors)
+    _, _, autotexts = ax.pie(cat_df[value_col], labels=labels, autopct="%1.1f%%", startangle=90, colors=colors)
+    for autotext, wedge_color in zip(autotexts, colors):
+        autotext.set_color(readable_text_color(wedge_color))
     ax.axis("equal")
     st.pyplot(fig)
     plt.close(fig)
@@ -466,9 +477,9 @@ def generate_smart_insights(expense_df: pd.DataFrame, income_df: pd.DataFrame, s
 
 TRANSLATIONS = {
     "en": {
-        "app_title": "Expense Tracker Pro+",
-        "sidebar_title": "Expense Tracker Pro+",
-        "sidebar_caption": "Improved version with faster entry, deeper analytics, bulk import, duplicate detection, and smarter subscription insights.",
+        "app_title": "Ledgy",
+        "sidebar_title": "Ledgy",
+        "sidebar_caption": "Clarity for your everyday spending.",
         "language": "Language",
         "logged_in_as": "Logged in as {username}",
         "log_out": "Log out",
@@ -482,7 +493,7 @@ TRANSLATIONS = {
         "create_account": "Create account",
         "send_reset_link": "Send reset link",
         "invalid_credentials": "Invalid email or password.",
-        "welcome_text": "Track spending, subscriptions, savings, imports, anomalies, and trends in one place.",
+        "welcome_text": "One place for spending, subscriptions, savings, and the patterns behind them.",
         "fast_capture": "Fast capture",
         "quick_add": "Quick Add",
         "quick_add_desc": "Paste natural text like: 2026-03-17 8.5 EUR coffee",
@@ -527,11 +538,14 @@ TRANSLATIONS = {
         "budget": "Budget",
         "saving": "Saving",
         "consistency": "Consistency",
+        "footer_text": "Ledgy · built by PMG (Pyatnychko Media Group), est. 2026",
+        "privacy_agree": "I've read and agree to the [Privacy Policy](/help)",
+        "privacy_agree_required": "Please confirm you've read the Privacy Policy before creating an account.",
     },
     "uk": {
-        "app_title": "Трекер витрат Pro+",
-        "sidebar_title": "Трекер витрат Pro+",
-        "sidebar_caption": "Покращена версія з швидким додаванням, глибшою аналітикою, імпортом, пошуком дублікатів і розумнішими підписками.",
+        "app_title": "Ledgy",
+        "sidebar_title": "Ledgy",
+        "sidebar_caption": "Ясність у щоденних витратах.",
         "language": "Мова",
         "logged_in_as": "Ви увійшли як {username}",
         "log_out": "Вийти",
@@ -545,7 +559,7 @@ TRANSLATIONS = {
         "create_account": "Створити акаунт",
         "send_reset_link": "Надіслати посилання",
         "invalid_credentials": "Неправильний email або пароль.",
-        "welcome_text": "Відстежуй витрати, підписки, заощадження, імпорт, аномалії та тренди в одному місці.",
+        "welcome_text": "Один простір для витрат, підписок, заощаджень і закономірностей між ними.",
         "fast_capture": "Швидке внесення",
         "quick_add": "Швидке додавання",
         "quick_add_desc": "Встав текст у стилі: 2026-03-17 8.5 EUR coffee",
@@ -590,11 +604,14 @@ TRANSLATIONS = {
         "budget": "Бюджет",
         "saving": "Заощадження",
         "consistency": "Стабільність",
+        "footer_text": "Ledgy · створено PMG (Pyatnychko Media Group), 2026",
+        "privacy_agree": "Я прочитав(-ла) і погоджуюсь з [Політикою конфіденційності](/help)",
+        "privacy_agree_required": "Будь ласка, підтверди, що прочитав(-ла) Політику конфіденційності, перш ніж створювати акаунт.",
     },
     "de": {
-        "app_title": "Ausgaben-Tracker Pro+",
-        "sidebar_title": "Ausgaben-Tracker Pro+",
-        "sidebar_caption": "Verbesserte Version mit schneller Erfassung, tieferen Analysen, Import, Duplikat-Erkennung und intelligenteren Abos.",
+        "app_title": "Ledgy",
+        "sidebar_title": "Ledgy",
+        "sidebar_caption": "Klarheit für deine täglichen Ausgaben.",
         "language": "Sprache",
         "logged_in_as": "Angemeldet als {username}",
         "log_out": "Abmelden",
@@ -608,7 +625,7 @@ TRANSLATIONS = {
         "create_account": "Konto erstellen",
         "send_reset_link": "Link senden",
         "invalid_credentials": "Ungültige E-Mail-Adresse oder ungültiges Passwort.",
-        "welcome_text": "Verfolge Ausgaben, Abos, Sparziele, Importe, Anomalien und Trends an einem Ort.",
+        "welcome_text": "Ein Ort für Ausgaben, Abos, Ersparnisse und die Muster dahinter.",
         "fast_capture": "Schnelle Erfassung",
         "quick_add": "Schnell hinzufügen",
         "quick_add_desc": "Natürlichen Text einfügen wie: 2026-03-17 8.5 EUR coffee",
@@ -653,6 +670,9 @@ TRANSLATIONS = {
         "budget": "Budget",
         "saving": "Sparen",
         "consistency": "Konstanz",
+        "footer_text": "Ledgy · entwickelt von PMG (Pyatnychko Media Group), gegr. 2026",
+        "privacy_agree": "Ich habe die [Datenschutzerklärung](/help) gelesen und stimme zu",
+        "privacy_agree_required": "Bitte bestätige, dass du die Datenschutzerklärung gelesen hast, bevor du ein Konto erstellst.",
     },
 }
 

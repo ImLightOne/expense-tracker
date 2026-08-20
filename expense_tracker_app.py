@@ -16,7 +16,7 @@ import streamlit as st
 # Absolute path so the favicon resolves regardless of the process's current
 # working directory when `streamlit run` is invoked from elsewhere.
 _FAVICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "favicon.png")
-st.set_page_config(page_title="Expense Tracker Pro+", page_icon=_FAVICON_PATH, layout="wide")
+st.set_page_config(page_title="Ledgy", page_icon=_FAVICON_PATH, layout="wide")
 
 # Default lookback window for the main interactive load. Bounding this query
 # (instead of always pulling a user's entire transaction history on every
@@ -44,6 +44,7 @@ from common import (
     logout_user,
     metric_card,
     register_user,
+    render_footer,
     render_set_password_screen,
     request_password_reset,
     require_login,
@@ -125,9 +126,13 @@ else:
         reg_username = st.sidebar.text_input(t("username"))
         reg_email = st.sidebar.text_input(t("email"))
         reg_password = st.sidebar.text_input(t("password"), type="password")
+        privacy_agreed = st.sidebar.checkbox(t("privacy_agree"))
         if st.sidebar.button(t("create_account"), use_container_width=True, type="primary"):
-            ok, message = register_user(reg_username, reg_email, reg_password)
-            (st.sidebar.success if ok else st.sidebar.error)(message)
+            if not privacy_agreed:
+                st.sidebar.error(t("privacy_agree_required"))
+            else:
+                ok, message = register_user(reg_username, reg_email, reg_password)
+                (st.sidebar.success if ok else st.sidebar.error)(message)
 
 if not st.session_state.user_id:
     brand_header(t("app_title"), size=44, hero=True)
@@ -139,6 +144,7 @@ if not st.session_state.user_id:
         metric_card(t("smart_insights"), t("analytics_plus"), t("analytics_plus_desc"))
     with c:
         metric_card(t("safe_data"), t("bulk_tools"), t("bulk_tools_desc"))
+    render_footer()
     st.stop()
 
 user_id = require_login()
@@ -279,3 +285,4 @@ navigation = st.navigation(
     position="sidebar",
 )
 navigation.run()
+render_footer()

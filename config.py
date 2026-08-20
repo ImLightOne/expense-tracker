@@ -35,6 +35,63 @@ CATEGORY_COLORS = {
     "Other Income": "#0f766e",
 }
 
+# Pre-built category color palette templates — an alternative to picking each
+# category's color one at a time, which (per user feedback) tends to look
+# visually disharmonious once several colors are chosen independently rather
+# than as one designed set. Each template assigns all 19 built-in categories
+# (12 expense + 7 income) a color from one real, published categorical
+# palette rather than an ad hoc pick, so the whole set reads as one coherent
+# family:
+#
+# - "ocean": a cool blue/teal/indigo/violet family built from Google's
+#   Material Design tonal steps (materialui.co/colors) — matches the app's
+#   own blue brand color from the redesign pass.
+# - "classic": Tableau's well-known "Tableau 10/20" categorical palette
+#   (the de facto standard in BI/dashboard tooling), muted and professional,
+#   blue-led.
+# - "sunset": a warm red/orange/amber/brown family, also built from Material
+#   Design's tonal steps, for a livelier alternative to the other two.
+#
+# Every one of these 57 colors was checked programmatically (WCAG relative
+# luminance, not eyeballed) to have a legible pairing with either white or
+# dark text via utils.readable_text_color — see that function's docstring —
+# and no two colors within one template collide.
+CATEGORY_COLOR_TEMPLATES = {
+    "ocean": {
+        "Food": "#009688", "Transport": "#2196F3", "Rent": "#673AB7",
+        "Entertainment": "#9C27B0", "Shopping": "#0097A7", "Health": "#3F51B5",
+        "Sports": "#607D8B", "Bills": "#512DA8", "Cafe": "#00BCD4",
+        "Education": "#1976D2", "Travel": "#03A9F4", "Other": "#455A64",
+        "Salary": "#00796B", "Bonus": "#4DD0E1", "Freelance": "#7986CB",
+        "Investments": "#9575CD", "Gift": "#BA68C8", "Refund": "#4FC3F7",
+        "Other Income": "#90A4AE",
+    },
+    "classic": {
+        "Food": "#1F77B4", "Transport": "#FF7F0E", "Rent": "#2CA02C",
+        "Entertainment": "#D62728", "Shopping": "#9467BD", "Health": "#8C564B",
+        "Sports": "#E377C2", "Bills": "#7F7F7F", "Cafe": "#BCBD22",
+        "Education": "#17BECF", "Travel": "#AEC7E8", "Other": "#FFBB78",
+        "Salary": "#98DF8A", "Bonus": "#FF9896", "Freelance": "#C5B0D5",
+        "Investments": "#C49C94", "Gift": "#F7B6D2", "Refund": "#C7C7C7",
+        "Other Income": "#DBDB8D",
+    },
+    "sunset": {
+        "Food": "#FF5722", "Transport": "#BF360C", "Rent": "#795548",
+        "Entertainment": "#E91E63", "Shopping": "#FF9800", "Health": "#D32F2F",
+        "Sports": "#E64A19", "Bills": "#5D4037", "Cafe": "#FFC107",
+        "Education": "#E57373", "Travel": "#F57C00", "Other": "#A1887F",
+        "Salary": "#FFD54F", "Bonus": "#FF8A65", "Freelance": "#F06292",
+        "Investments": "#FFB74D", "Gift": "#FBC02D", "Refund": "#C2185B",
+        "Other Income": "#FFF176",
+    },
+}
+
+CATEGORY_COLOR_TEMPLATE_NAMES = {
+    "ocean": {"en": "Ocean", "uk": "Океан", "de": "Ozean"},
+    "classic": {"en": "Classic", "uk": "Класична", "de": "Klassisch"},
+    "sunset": {"en": "Sunset", "uk": "Захід сонця", "de": "Sonnenuntergang"},
+}
+
 CATEGORY_TRANSLATIONS = {
     "Food": {"uk": "Їжа", "de": "Essen"},
     "Transport": {"uk": "Транспорт", "de": "Transport"},
@@ -176,7 +233,8 @@ STYLE = """
    hero (see common.py's brand_header()). Replaces the old plain-emoji
    "💸 Expense Tracker Pro+" text — a hand-drawn geometric mark (rounded
    square, three ascending bars) reads as a designed identity instead of a
-   generic Unicode emoji standing in for a logo. */
+   generic Unicode emoji standing in for a logo. (App renamed to "Ledgy" in
+   wave 3 iteration 8; the mark itself is unchanged.) */
 .brand-header {
   display:flex; align-items:center; gap:.55rem; margin-bottom:.15rem;
 }

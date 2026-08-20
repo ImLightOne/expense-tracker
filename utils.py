@@ -14,6 +14,42 @@ from config import (
 )
 
 
+def readable_text_color(hex_color: str, light: str = "#ffffff", dark: str = "#1a1d29") -> str:
+    """Pick whichever of `light`/`dark` has better WCAG contrast against
+    `hex_color`, instead of assuming white text always works.
+
+    Category badges and pie-chart labels render text directly on a
+    category's own color, and that color can be anything — a built-in
+    default, a user's manual color-picker choice, or (new in this pass) one
+    of the pre-built palette templates, several of which include light
+    pastel tones. Hardcoding white text (the old behavior) reads fine on
+    the mostly-mid-tone original defaults but goes illegible on a light
+    background (e.g. a pastel yellow with white text) — exactly the kind
+    of "looks off" result a manual color pick can produce, per the user's
+    report. Computed via the standard WCAG relative-luminance formula, not
+    eyeballed.
+    """
+    def _contrast(hex1: str, hex2: str) -> float:
+        def _luminance(hx: str) -> float:
+            hx = hx.lstrip("#")
+            r, g, b = (int(hx[i:i + 2], 16) for i in (0, 2, 4))
+
+            def chan(c: int) -> float:
+                c_norm = c / 255
+                return c_norm / 12.92 if c_norm <= 0.03928 else ((c_norm + 0.055) / 1.055) ** 2.4
+
+            return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b)
+
+        l1, l2 = _luminance(hex1), _luminance(hex2)
+        l1, l2 = max(l1, l2), min(l1, l2)
+        return (l1 + 0.05) / (l2 + 0.05)
+
+    try:
+        return light if _contrast(hex_color, light) >= _contrast(hex_color, dark) else dark
+    except Exception:
+        return light
+
+
 def safe_float(value, default: float = 0.0) -> float:
     try:
         if value is None or value == "":

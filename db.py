@@ -170,6 +170,28 @@ def reset_category_color(user_id: str, name: str, tx_type: str) -> None:
     get_category_colors.clear()
 
 
+def apply_category_color_template(user_id: str, template: Dict[str, str], expense_categories: List[str], income_categories: List[str]) -> None:
+    """Bulk-apply a pre-built palette template (config.CATEGORY_COLOR_TEMPLATES)
+    as this user's color overrides for every category the template covers.
+
+    One batched upsert instead of one call per category (up to 19 rows) —
+    same net effect as calling set_category_color() in a loop, but a single
+    round trip. `expense_categories`/`income_categories` decide each row's
+    `type` (category_colors' uniqueness is per user+type+name, so a name
+    that happens to exist in both gets a row for each type it belongs to).
+    """
+    rows = []
+    for name, color in template.items():
+        if name in expense_categories:
+            rows.append({"user_id": user_id, "name": name, "type": "expense", "color": color})
+        if name in income_categories:
+            rows.append({"user_id": user_id, "name": name, "type": "income", "color": color})
+    if not rows:
+        return
+    supabase.table("category_colors").upsert(rows, on_conflict="user_id,type,name").execute()
+    get_category_colors.clear()
+
+
 @st.cache_data(ttl=3600)
 def get_rates_map(base: str = "EUR") -> Dict[str, float]:
     """Cached for 1 hour — this is the single biggest performance fix in this
