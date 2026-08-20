@@ -11,6 +11,7 @@ from utils import (
     month_key,
     normalize_quick_text,
     parse_quick_add,
+    readable_text_color,
     recurrence_period_bounds,
     safe_float,
     tokenize_quick_text,
@@ -296,3 +297,23 @@ def test_monthly_equivalent_yearly_divides_by_twelve():
 
 def test_monthly_equivalent_defaults_to_monthly_when_omitted():
     assert monthly_equivalent(50.0) == 50.0
+
+
+# ---------------------------------------------------------------------------
+# readable_text_color
+# ---------------------------------------------------------------------------
+
+def test_readable_text_color_picks_dark_text_on_light_background():
+    assert readable_text_color("#FFEB3B") == "#1a1d29"  # bright yellow
+
+
+def test_readable_text_color_picks_light_text_on_dark_background():
+    assert readable_text_color("#1A237E") == "#ffffff"  # dark indigo
+
+
+def test_readable_text_color_is_case_insensitive():
+    assert readable_text_color("#ffeb3b") == readable_text_color("#FFEB3B")
+
+
+def test_readable_text_color_falls_back_to_light_on_bad_input():
+    assert readable_text_color("not-a-color") == "#ffffff"
