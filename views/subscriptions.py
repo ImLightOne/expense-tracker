@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from common import end_section, l, lrec, section, show_empty
+from common import end_section, gradient_bar_chart, l, lrec, section, show_empty
 from utils import format_money, monthly_equivalent, safe_float
 
 
@@ -50,5 +50,8 @@ def render(ctx: dict) -> None:
             "\"Місячний еквівалент\" перераховує тижневі/річні суми на місячну для порівняння — це не буквальне щомісячне списання.",
             "\"Monatsäquivalent\" rechnet wöchentliche/jährliche Beträge zu einem Monatswert um, um sie vergleichbar zu machen — es ist keine tatsächliche monatliche Abbuchung.",
         ))
-        st.bar_chart(grouped.set_index("merchant")[["monthly_display"]])
+        gradient_bar_chart(
+            grouped, "merchant", "monthly_display",
+            y_title=display_currency, sort=list(grouped["merchant"]),
+        )
     end_section()

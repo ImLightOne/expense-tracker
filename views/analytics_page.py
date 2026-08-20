@@ -4,11 +4,12 @@ import pandas as pd
 import streamlit as st
 
 from analytics import category_summary, detect_anomalies, merchant_summary, monthly_series, weekday_summary
-from common import end_section, l, lcat, section, show_empty
+from common import end_section, gradient_area_chart, gradient_bar_chart, l, lcat, section, show_empty
 
 
 def render(ctx: dict) -> None:
     expense_df = ctx["expense_df"]
+    display_currency = ctx["display_currency"]
 
     section(l("Advanced analytics", "Розширена аналітика", "Erweiterte Analysen"), l("Monthly trend, merchants, weekday patterns, anomalies, and Pareto view.", "Місячний тренд, продавці, патерни по днях, аномалії та Pareto-аналіз.", "Monatstrend, Händler, Wochentagsmuster, Anomalien und Pareto-Ansicht."))
     analytics_df = expense_df.copy()
@@ -23,11 +24,11 @@ def render(ctx: dict) -> None:
             if monthly.empty:
                 show_empty(l("Not enough monthly data.", "Недостатньо місячних даних.", "Nicht genug Monatsdaten."))
             else:
-                st.line_chart(monthly.set_index("month"))
+                gradient_area_chart(monthly, "month", "display_abs_amount", y_title=display_currency)
         with c2:
             st.write(f"**{l('Weekday pattern', 'Патерн по днях тижня', 'Wochentagsmuster')}**")
             weekdays = weekday_summary(analytics_df, "display_abs_amount")
-            st.bar_chart(weekdays.set_index("weekday"))
+            gradient_bar_chart(weekdays, "weekday", "display_abs_amount", y_title=display_currency, sort=list(weekdays["weekday"]))
         end_section()
 
         left, right = st.columns(2)

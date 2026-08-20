@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from analytics import calculate_financial_health, category_summary, check_category_budgets, month_forecast, savings_progress, streak_metrics
-from common import end_section, generate_smart_insights, get_rates_map, l, lcat, metric_card, plot_pie, rerun, section, show_empty, t
+from common import categorical_gradient_bar_chart, end_section, generate_smart_insights, get_rates_map, l, lcat, metric_card, render_donut_chart, rerun, section, show_empty, t
 from config import CATEGORY_COLORS
 from db import convert_from_eur, convert_to_eur, get_category_budgets, get_monthly_limit, set_category_budget, set_monthly_limit
 from utils import format_money, month_key, readable_text_color, safe_float
@@ -113,17 +113,18 @@ def render(ctx: dict) -> None:
             if "pages" in ctx:
                 st.page_link(ctx["pages"]["quick_add"], label=t("quick_add"), icon=":material/bolt:")
         else:
-            cat_df_view = cat_df.copy()
-            cat_df_view["category"] = cat_df_view["category"].map(lcat)
-            st.bar_chart(cat_df_view.set_index("category"))
+            categorical_gradient_bar_chart(
+                cat_df, "category", "display_abs_amount", ctx.get("category_colors", CATEGORY_COLORS),
+                y_title=display_currency,
+            )
             share_df = cat_df.copy()
             share_df["share"] = (share_df["display_abs_amount"] / share_df["display_abs_amount"].sum() * 100).round(1)
             st.dataframe(share_df, use_container_width=True, hide_index=True)
         end_section()
     with right:
-        section(l("Category split", "Розподіл категорій", "Kategorieverteilung"), l("Pie view for the same filtered range.", "Кругова діаграма для того ж фільтра.", "Kreisdiagramm für denselben Filter."))
+        section(l("Category split", "Розподіл категорій", "Kategorieverteilung"), l("Donut view for the same filtered range — hover a segment for its share.", "Діаграма-пончик для того ж фільтра — наведи на сегмент, щоб побачити частку.", "Donut-Ansicht für denselben Filter — fahre über ein Segment für seinen Anteil."))
         pie_df = category_summary(expense_df, "display_abs_amount").copy()
-        plot_pie(pie_df, "display_abs_amount", category_colors=ctx.get("category_colors"))
+        render_donut_chart(pie_df, "display_abs_amount", display_currency, category_colors=ctx.get("category_colors"))
         end_section()
 
     left2, right2 = st.columns([1.1, 1])

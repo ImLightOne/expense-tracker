@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from common import end_section, l, section
+from common import end_section, l, privacy_policy_text, section
 
 
 def _faq_item(question: str, answer: str) -> None:
@@ -157,50 +157,7 @@ def render(ctx: dict) -> None:
         ),
     )
 
-    st.markdown(
-        l(
-            "**Who operates this app.** Ledgy is developed and operated by PMG (Pyatnychko Media Group).\n\n"
-            "**What we collect.** Your email address (for login), the transactions, savings entries, budgets, "
-            "and custom categories you enter, and basic account metadata (username, password hash).\n\n"
-            "**Where it's stored.** In a Supabase-hosted Postgres database, protected by row-level security so "
-            "only your own account can read or write your rows (see the FAQ above).\n\n"
-            "**Third-party services.** Currency conversion rates are fetched from the Frankfurter and National "
-            "Bank of Ukraine (NBU) public APIs. Only the currency codes and dates needed for the conversion are "
-            "sent — no personal data or transaction details leave the app for this.\n\n"
-            "**Account deletion.** Self-service account deletion isn't available in the app yet. If you'd like "
-            "your account and data removed, reach out to the person who manages this app for you.\n\n"
-            "**Changes.** This summary may be updated as the app evolves; check back here for the current "
-            "version.",
-            "**Хто керує застосунком.** Ledgy розробляє та підтримує PMG (Pyatnychko Media Group).\n\n"
-            "**Що ми збираємо.** Твою електронну пошту (для входу), внесені тобою транзакції, записи "
-            "накопичень, бюджети й користувацькі категорії, а також базові метадані акаунту (ім'я користувача, "
-            "хеш пароля).\n\n"
-            "**Де це зберігається.** У базі даних Postgres на Supabase, захищеній row-level security, тому "
-            "читати чи змінювати твої рядки може лише твій власний акаунт (див. FAQ вище).\n\n"
-            "**Сторонні сервіси.** Курси валют отримуються з публічних API Frankfurter та Національного банку "
-            "України (НБУ). Для цього передаються лише коди валют і дати — жодні особисті дані чи деталі "
-            "транзакцій не покидають застосунок.\n\n"
-            "**Видалення акаунту.** Самостійне видалення акаунту наразі недоступне в застосунку. Якщо хочеш, "
-            "щоб твій акаунт і дані видалили, звернись до людини, яка адмініструє цей застосунок для тебе.\n\n"
-            "**Зміни.** Цей опис може оновлюватися з розвитком застосунку — перевіряй цю сторінку для "
-            "актуальної версії.",
-            "**Wer diese App betreibt.** Ledgy wird von PMG (Pyatnychko Media Group) entwickelt und betrieben.\n\n"
-            "**Was wir erheben.** Deine E-Mail-Adresse (für den Login), die von dir eingegebenen Transaktionen, "
-            "Ersparnis-Einträge, Budgets und eigenen Kategorien sowie grundlegende Kontometadaten (Benutzername, "
-            "Passwort-Hash).\n\n"
-            "**Wo es gespeichert wird.** In einer Supabase-gehosteten Postgres-Datenbank, geschützt durch "
-            "Row-Level-Security, sodass nur dein eigenes Konto deine Zeilen lesen oder ändern kann (siehe FAQ "
-            "oben).\n\n"
-            "**Drittanbieterdienste.** Wechselkurse werden von den öffentlichen APIs von Frankfurter und der "
-            "Nationalbank der Ukraine (NBU) abgerufen. Dabei werden nur die für die Umrechnung nötigen "
-            "Währungscodes und Daten übermittelt — keine persönlichen Daten oder Transaktionsdetails.\n\n"
-            "**Kontolöschung.** Eine Selbstbedienungs-Kontolöschung ist in der App noch nicht verfügbar. Wenn du "
-            "möchtest, dass dein Konto und deine Daten entfernt werden, wende dich an die Person, die diese App "
-            "für dich verwaltet.\n\n"
-            "**Änderungen.** Diese Zusammenfassung kann sich mit der Weiterentwicklung der App ändern — schau "
-            "hier für die aktuelle Version vorbei.",
-        )
-    )
+    st.markdown(privacy_policy_text())
     end_section()
 
     section(l("About", "Про проєкт", "Über uns"))
