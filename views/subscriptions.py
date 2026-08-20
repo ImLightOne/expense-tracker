@@ -16,7 +16,7 @@ def render(ctx: dict) -> None:
     if subs.empty:
         show_empty(l("No subscriptions in the selected range.", "У вибраному діапазоні немає підписок.", "Keine Abos im ausgewählten Bereich."))
         if "pages" in ctx:
-            st.page_link(ctx["pages"]["add_expense"], label=l("Add a recurring expense", "Додати повторювану витрату", "Wiederkehrende Ausgabe hinzufügen"), icon="➕")
+            st.page_link(ctx["pages"]["add_expense"], label=l("Add a recurring expense", "Додати повторювану витрату", "Wiederkehrende Ausgabe hinzufügen"), icon=":material/add_circle:")
     else:
         subs["recurrence"] = subs["recurrence"].fillna("monthly")
         # Normalize every subscription to a monthly-equivalent amount before

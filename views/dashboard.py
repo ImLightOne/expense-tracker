@@ -111,7 +111,7 @@ def render(ctx: dict) -> None:
         if cat_df.empty:
             show_empty(l("Add a few transactions to unlock the dashboard.", "Додай кілька транзакцій, щоб активувати дашборд.", "Füge ein paar Transaktionen hinzu, um das Dashboard zu aktivieren."))
             if "pages" in ctx:
-                st.page_link(ctx["pages"]["quick_add"], label=t("quick_add"), icon="⚡")
+                st.page_link(ctx["pages"]["quick_add"], label=t("quick_add"), icon=":material/bolt:")
         else:
             cat_df_view = cat_df.copy()
             cat_df_view["category"] = cat_df_view["category"].map(lcat)
@@ -135,7 +135,7 @@ def render(ctx: dict) -> None:
             value=safe_float(current_month_limit_display),
             step=10.0,
         )
-        if st.button(l("Save monthly budget", "Зберегти місячний бюджет", "Monatsbudget speichern"), use_container_width=True):
+        if st.button(l("Save monthly budget", "Зберегти місячний бюджет", "Monatsbudget speichern"), use_container_width=True, type="primary"):
             set_monthly_limit(user_id, convert_to_eur(limit_input, display_currency))
             st.success(l("Budget saved.", "Бюджет збережено.", "Budget gespeichert."))
             rerun()
@@ -165,7 +165,7 @@ def render(ctx: dict) -> None:
                 step=10.0,
                 key=f"cat_budget_{cat}",
             )
-        if st.button(l("Save category budgets", "Зберегти бюджети категорій", "Kategorie-Budgets speichern"), use_container_width=True):
+        if st.button(l("Save category budgets", "Зберегти бюджети категорій", "Kategorie-Budgets speichern"), use_container_width=True, type="primary"):
             for cat in selected_budget_categories:
                 amount_display = category_budget_inputs[cat]
                 amount_eur = convert_to_eur(amount_display, display_currency)
@@ -242,7 +242,7 @@ def render(ctx: dict) -> None:
         if savings_df.empty:
             show_empty(l("No savings goals yet.", "Цілей заощаджень ще немає.", "Noch keine Sparziele vorhanden."))
             if "pages" in ctx:
-                st.page_link(ctx["pages"]["savings"], label=t("savings"), icon="💰")
+                st.page_link(ctx["pages"]["savings"], label=t("savings"), icon=":material/savings:")
         else:
             for _, row in savings_df.iterrows():
                 progress = savings_progress(row["saved"], row["target"])

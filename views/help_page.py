@@ -32,11 +32,11 @@ def render(ctx: dict) -> None:
         st.caption(l("Jump to:", "Перейти до:", "Direkt zu:"))
         link_cols = st.columns(3)
         with link_cols[0]:
-            st.page_link(pages["categories"], label=l("Categories", "Категорії", "Kategorien"), icon="🏷️")
+            st.page_link(pages["categories"], label=l("Categories", "Категорії", "Kategorien"), icon=":material/sell:")
         with link_cols[1]:
-            st.page_link(pages["subscriptions"], label=l("Subscriptions", "Підписки", "Abos"), icon="🔁")
+            st.page_link(pages["subscriptions"], label=l("Subscriptions", "Підписки", "Abos"), icon=":material/autorenew:")
         with link_cols[2]:
-            st.page_link(pages["quick_add"], label=l("Quick Add", "Швидке додавання", "Schnell hinzufügen"), icon="⚡")
+            st.page_link(pages["quick_add"], label=l("Quick Add", "Швидке додавання", "Schnell hinzufügen"), icon=":material/bolt:")
 
     _faq_item(
         l(

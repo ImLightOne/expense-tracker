@@ -18,7 +18,7 @@ def render(ctx: dict) -> None:
     if filtered_df.empty:
         show_empty(l("No matching expenses.", "Немає відповідних витрат.", "Keine passenden Ausgaben."))
         if "pages" in ctx:
-            st.page_link(ctx["pages"]["add_expense"], label=l("Add expense", "Додати витрату", "Ausgabe hinzufügen"), icon="➕")
+            st.page_link(ctx["pages"]["add_expense"], label=l("Add expense", "Додати витрату", "Ausgabe hinzufügen"), icon=":material/add_circle:")
     else:
         managed = filtered_df.copy().sort_values("date", ascending=False)
         managed["label"] = (

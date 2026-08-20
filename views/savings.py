@@ -21,7 +21,7 @@ def render(ctx: dict) -> None:
     with c3:
         goal_saved = st.number_input(l("Already saved (€)", "Вже відкладено (€)", "Bereits gespart (€)"), min_value=0.0, step=10.0)
 
-    if st.button(l("Add goal", "Додати ціль", "Ziel hinzufügen"), use_container_width=True):
+    if st.button(l("Add goal", "Додати ціль", "Ziel hinzufügen"), use_container_width=True, type="primary"):
         if not goal_name.strip():
             st.error(l("Goal name cannot be empty.", "Назва цілі не може бути порожньою.", "Der Zielname darf nicht leer sein."))
         else:
@@ -42,7 +42,7 @@ def render(ctx: dict) -> None:
             st.caption(f"{l('Saved', 'Відкладено', 'Gespart')}: {format_money(row['saved'], 'EUR')} / {l('Target', 'Ціль', 'Ziel')}: {format_money(row['target'], 'EUR')}")
             add_more = st.number_input(f"{l('Add money to', 'Додати гроші до', 'Geld hinzufügen zu')} {row['name']}", min_value=0.0, step=10.0, key=f"save_{row['id']}")
             x1, x2 = st.columns(2)
-            if x1.button(f"{l('Update', 'Оновити', 'Aktualisieren')} {row['name']}", key=f"upd_{row['id']}", use_container_width=True):
+            if x1.button(f"{l('Update', 'Оновити', 'Aktualisieren')} {row['name']}", key=f"upd_{row['id']}", use_container_width=True, type="primary"):
                 update_savings_progress(user_id, int(row["id"]), float(row["saved"]) + float(add_more))
                 st.success(l("Savings updated.", "Заощадження оновлено.", "Sparziel aktualisiert."))
                 rerun()

@@ -34,7 +34,7 @@ def render(ctx: dict) -> None:
 
     if note:
         st.caption(l("Suggested category from note: {suggested_category}", "Запропонована категорія з нотатки: {suggested_category}", "Vorgeschlagene Kategorie aus der Notiz: {suggested_category}").format(suggested_category=suggested_category))
-    if st.button(l("Save transaction", "Зберегти транзакцію", "Transaktion speichern"), use_container_width=True):
+    if st.button(l("Save transaction", "Зберегти транзакцію", "Transaktion speichern"), use_container_width=True, type="primary"):
         add_transaction(user_id, expense_date, amount, category, currency, tx_type, note, 1 if is_subscription else 0, recurrence)
         st.success(l("Transaction added.", "Транзакцію додано.", "Transaktion hinzugefügt."))
         rerun()

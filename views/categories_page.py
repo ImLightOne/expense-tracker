@@ -41,7 +41,7 @@ def _render_type_section(user_id: str, tx_type: str, defaults: list) -> None:
                 rerun()
 
     new_name = st.text_input(l("New category name", "Назва нової категорії", "Neuer Kategoriename"), key=f"new_cat_{tx_type}")
-    if st.button(l("Add category", "Додати категорію", "Kategorie hinzufügen"), key=f"add_cat_{tx_type}", use_container_width=True):
+    if st.button(l("Add category", "Додати категорію", "Kategorie hinzufügen"), key=f"add_cat_{tx_type}", use_container_width=True, type="primary"):
         ok, reason = add_custom_category(user_id, new_name, tx_type)
         if ok:
             st.success(l("Category added.", "Категорію додано.", "Kategorie hinzugefügt."))
