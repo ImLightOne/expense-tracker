@@ -168,9 +168,11 @@ STYLE = """
    "Confident & modern" theme — Wave 3, iteration 7.
 
    One deliberate brand color (a deep, saturated blue — #1d4ed8 light /
-   #5b8cff dark) on a neutral background, crisp small-radius shapes, no
-   gradients, no decorative blur/glow. This is a full swap of what used to
-   be a "minimalist / monochrome" palette borrowed from Streamlit's own
+   #5b8cff dark) on a neutral background, crisp small-radius shapes. (Wave
+   3 iteration 10 later added a restrained glow/glass layer on top of this
+   — see the "GLOW SYSTEM" block below — but the one-brand-color rule and
+   the overall restraint it set out are unchanged.) This is a full swap of
+   what used to be a "minimalist / monochrome" palette borrowed from Streamlit's own
    default colors (including its default red primaryColor) — that default
    look is also exactly what made the app read as an unstyled/default
    Streamlit app rather than its own product. --app-primary here is now
@@ -198,19 +200,78 @@ STYLE = """
 :root {
   --app-bg: #ffffff;
   --app-secondary-bg: #f4f5f9;
+  --app-secondary-bg-rgb: 244, 245, 249;
   --app-text: #1a1d29;
   --app-primary: #1d4ed8;
+  --app-primary-rgb: 29, 78, 216;
   --app-border: rgba(15,23,42,.12);
   --app-radius: 10px;
+  --app-shadow-rest: 0 1px 2px rgba(15,23,42,.05);
+  --app-shadow-hover: 0 16px 34px -14px rgba(29,78,216,.30), 0 2px 8px rgba(15,23,42,.06);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --app-bg: #0e1117;
     --app-secondary-bg: #262730;
+    --app-secondary-bg-rgb: 38, 39, 48;
     --app-text: #fafafa;
     --app-primary: #5b8cff;
+    --app-primary-rgb: 91, 140, 255;
     --app-border: rgba(255,255,255,.14);
+    --app-shadow-rest: 0 1px 2px rgba(0,0,0,.3);
+    --app-shadow-hover: 0 20px 42px -16px rgba(91,140,255,.38), 0 2px 10px rgba(0,0,0,.4);
   }
+}
+
+/* ---------------------------------------------------------------------
+   GLOW SYSTEM — Wave 3, iteration 10.
+
+   User asked for a nicer, more "premium" look, pointing at three React/
+   Tailwind component-marketing sites as reference (Animaster Lib, Skiper
+   UI, Vengeance UI). None of those can literally run inside Streamlit —
+   different stack entirely (React + Radix + Tailwind vs. Python-rendered
+   HTML) — confirmed by looking at their actual sites before starting this
+   work, and confirmed with the user that only the *visual language*
+   should carry over, reimplemented natively for this app. That shared
+   language across all three: a soft ambient glow behind content, glass-
+   like translucent surfaces over it, and motion on hover. This section
+   layers that on top of the existing "confident & modern" system
+   (iteration 7) rather than replacing it — brand blue, category colors,
+   and overall restraint stay; what's new is depth and motion.
+
+   Deliberately NOT included: auto-playing "entrance" animations on cards
+   (a staple of those reference sites). Streamlit reruns the entire script
+   on every interaction — a changed filter, a typed character, a clicked
+   tab — so a mount/entrance animation on .metric-card or the section
+   containers would replay on nearly every click across the app, not just
+   on first load. That reads as jittery rather than polished. Hover-
+   triggered motion doesn't have this problem (it only fires on the user's
+   own cursor), so that's the only motion used below.
+   --------------------------------------------------------------------- */
+
+/* Ambient glow: two soft radial washes of the brand color, one near each
+   far corner. Deliberately layered as extra `background-image` gradients
+   on [data-testid="stApp"] itself rather than a ::before/::after pseudo-
+   element — verified live (DOM probe) that the pseudo-element approach
+   render invisible: stApp's own opaque background-color paints over
+   anything behind it in the stacking order, and its children (including
+   stAppViewContainer, which is where the glow would have to live to sit
+   "under" the content) have overflow:hidden, which clips a position:fixed
+   pseudo-element to that element's own box instead of letting it escape
+   to the viewport as intended. A background-image on stApp itself doesn't
+   have either problem: image layers always paint above that same
+   element's own background-color, so it sits between the solid page
+   color and every real child element above it — exactly "ambient wash
+   behind the content" with no clipping or stacking tricks involved. */
+[data-testid="stApp"] {
+  background-image:
+    radial-gradient(circle at 96% -8%, rgba(var(--app-primary-rgb), .20), rgba(var(--app-primary-rgb), 0) 42%),
+    radial-gradient(circle at -8% 104%, rgba(var(--app-primary-rgb), .13), rgba(var(--app-primary-rgb), 0) 40%);
+  background-repeat: no-repeat;
+}
+
+.brand-header svg {
+  filter: drop-shadow(0 0 14px rgba(var(--app-primary-rgb), .35));
 }
 
 /* padding-top clears Streamlit's own fixed header bar (the top strip that
@@ -254,9 +315,18 @@ STYLE = """
    Streamlit's own grouping primitive, so this is the first version that
    genuinely wraps the section on screen. */
 [class*="st-key-section_"] {
-  background: var(--app-secondary-bg);
+  background: rgba(var(--app-secondary-bg-rgb), .82);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius); padding: 1.1rem; margin-bottom: 1rem;
+  box-shadow: var(--app-shadow-rest);
+  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease;
+}
+[class*="st-key-section_"]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--app-shadow-hover);
+  border-color: rgba(var(--app-primary-rgb), .32);
 }
 
 /* Stat tiles (metric_card() in common.py). Crisp, flat surfaces — a
@@ -284,6 +354,13 @@ STYLE = """
   padding: 1.15rem 1.3rem 1.2rem;
   margin-bottom: 1.1rem;
   min-height: 130px;
+  box-shadow: var(--app-shadow-rest);
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.metric-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--app-shadow-hover);
+  border-color: rgba(var(--app-primary-rgb), .35);
 }
 .metric-card.tone-good::before,
 .metric-card.tone-warning::before,
@@ -320,6 +397,31 @@ STYLE = """
   flex-wrap: wrap;
   padding:.75rem; border:1px solid var(--app-border); border-radius: var(--app-radius);
   margin-bottom:.5rem; background:var(--app-secondary-bg);
+  transition: border-color .18s ease, transform .18s ease;
+}
+.feed-row:hover {
+  border-color: rgba(var(--app-primary-rgb), .35);
+  transform: translateX(2px);
+}
+
+/* Native Streamlit buttons — same lift-and-glow language as the cards
+   above, layered on top of .streamlit/config.toml's own primaryColor
+   theming (this only adds motion/shadow, it never touches color). */
+div[data-testid="stButton"] button,
+div[data-testid="stFormSubmitButton"] button,
+div[data-testid="stDownloadButton"] button {
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+div[data-testid="stButton"] button:hover,
+div[data-testid="stFormSubmitButton"] button:hover,
+div[data-testid="stDownloadButton"] button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -10px rgba(var(--app-primary-rgb), .5);
+}
+div[data-testid="stButton"] button:active,
+div[data-testid="stFormSubmitButton"] button:active,
+div[data-testid="stDownloadButton"] button:active {
+  transform: translateY(0);
 }
 
 .soft-box {
@@ -351,6 +453,22 @@ STYLE = """
   .tone-chip {font-size:.7rem; padding:.2rem .55rem;}
   .feed-row {padding:.6rem; flex-direction: column; align-items: flex-start;}
   .badge {font-size:.72rem;}
+}
+
+/* Anyone with the OS-level "reduce motion" setting gets the exact same
+   layout with zero movement — the glow blobs stay (they're static, not
+   animated) but every hover transform/transition is switched off. */
+@media (prefers-reduced-motion: reduce) {
+  [class*="st-key-section_"], .metric-card, .feed-row,
+  div[data-testid="stButton"] button, div[data-testid="stFormSubmitButton"] button,
+  div[data-testid="stDownloadButton"] button {
+    transition: none !important;
+  }
+  [class*="st-key-section_"]:hover, .metric-card:hover, .feed-row:hover,
+  div[data-testid="stButton"] button:hover, div[data-testid="stFormSubmitButton"] button:hover,
+  div[data-testid="stDownloadButton"] button:hover {
+    transform: none !important;
+  }
 }
 </style>
 """
